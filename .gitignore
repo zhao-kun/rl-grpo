@@ -1,0 +1,6 @@
+.vscode/
+*.pth
+*.png
+.venv/
+.others/
+__pycache__/

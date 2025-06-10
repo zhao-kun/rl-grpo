@@ -1,0 +1,18 @@
+[project]
+name = "simple_gpro"
+version = "0.1.0"
+description = "Simple GPRO demostration"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "torch",
+  "matplotlib",
+  "numpy==1.26.4" ,
+  "pytest",
+  "tqdm"
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.0",
+]
