@@ -113,12 +113,12 @@ class GameEngine:
         
         Args:
             inputs_state: shape (batch_size, num_inits, input_size) - current game states
-            game_state: shape (batch_size, num_inits, 3) - [score, step_count, activated_fruits_count] for each game
+            game_state: shape (batch_size, num_inits, 3) - [score, step_count, fruits_reached_bottom_count] for each game
             
         Returns:
             new_inputs_state: updated game states
             actions: chosen actions for each game
-            new_game_state: updated game states with scores, step counts, and activated fruits count
+            new_game_state: updated game states with scores, step counts, and fruits reached bottom count
         """
         batch_size, num_inits, input_size = inputs_state.shape
         game_config = self.config.game_config
@@ -151,6 +151,7 @@ class GameEngine:
                 score_change = 0
                 activated_fruits_in_step = 0
                 fruits_deactivated_this_step = 0
+                fruits_reached_bottom_count = 0
                 
                 for fruit_idx in range(game_config.max_fruits_on_screen):
                     fruit_start = 1 + fruit_idx * 3
@@ -166,6 +167,8 @@ class GameEngine:
                         # Check collision with sprite
                         sprite_y = game_config.screen_height - 1
                         if fruit_y == sprite_y:
+                            # Fruit reached the bottom level
+                            fruits_reached_bottom_count += 1
                             # Check if sprite catches fruit
                             sprite_left = sprite_x - game_config.sprite_width // 2
                             sprite_right = sprite_x + game_config.sprite_width // 2
@@ -181,7 +184,8 @@ class GameEngine:
                                 new_inputs_state[b, i, fruit_start + 2] = 0  # deactivate fruit
                                 fruits_deactivated_this_step += 1
                         elif fruit_y >= game_config.screen_height:
-                            # Fruit went off screen
+                            # Fruit went off screen (also counts as reaching bottom)
+                            fruits_reached_bottom_count += 1
                             new_inputs_state[b, i, fruit_start + 2] = 0  # deactivate fruit
                             fruits_deactivated_this_step += 1
                         else:
@@ -221,10 +225,10 @@ class GameEngine:
                     if current_active >= game_config.min_fruits_on_screen:
                         break
                 
-                # Update score, step count, and activated fruits count
+                # Update score, step count, and fruits reached bottom count
                 new_game_state[b, i, 0] += score_change  # score
                 new_game_state[b, i, 1] += 1  # step count
-                new_game_state[b, i, 2] += activated_fruits_in_step  # total activated fruits count
+                new_game_state[b, i, 2] += fruits_reached_bottom_count  # total fruits that reached bottom
         
         return new_inputs_state, actions, new_game_state
 
@@ -265,11 +269,11 @@ class Trainer:
 
         # game_state stores the state of each game, each game has 3 dimensions to save its state:
         # index 0 is the score, index 1 indicates number of step when game invoke update, step increse 1.
-        # index 2 is the total count of fruits that have been activated during the game
+        # index 2 is the total count of fruits that have reached the bottom during the game
         game_state = torch.zeros((num_inits, 3), dtype=torch.float32, device=self.device)
         
-        # Initialize the activated fruits count with 1 for each game (since we start with one active fruit)
-        game_state[:, 2] = 1.0  # Each game starts with 1 activated fruit
+        # Initialize the fruits reached bottom count with 0 for each game (no fruits have reached bottom yet)
+        # game_state[:, 2] = 0.0  # Already 0 from torch.zeros, but explicit for clarity
         
         return result, game_state
     

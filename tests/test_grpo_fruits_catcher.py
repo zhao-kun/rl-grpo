@@ -294,5 +294,71 @@ class TestGameEngine:
         assert new_game_state[0, 0, 1].item() == 1  # step count increased for all games
         assert new_game_state[1, 2, 1].item() == 1
 
+    def test_fruits_reached_bottom_tracking(self, game_engine):
+        """Test that the third dimension correctly tracks fruits reaching the bottom"""
+        batch_size, num_inits = 1, 1
+        input_size = game_engine.config.game_config.get_inputsize()
+        screen_height = game_engine.config.game_config.screen_height
+        
+        inputs_state = torch.zeros(batch_size, num_inits, input_size)
+        inputs_state[0, 0, 0] = 5  # sprite position
+        inputs_state[0, 0, 1] = 8  # fruit 1 x position (different from sprite - will be missed)
+        inputs_state[0, 0, 2] = screen_height - 2  # fruit 1 y position (will reach bottom after falling)
+        inputs_state[0, 0, 3] = 1  # fruit 1 active
+        
+        game_state = torch.zeros(batch_size, num_inits, 3)
+        
+        with patch.object(game_engine.brain, 'sample_action', return_value=(torch.tensor([1]), torch.tensor([0.0]))):
+            new_inputs, actions, new_game_state = game_engine.update(inputs_state, game_state)
+        
+        # Check that fruits reached bottom count is incremented
+        assert new_game_state[0, 0, 2].item() == 1  # one fruit reached bottom
+        
+    def test_fruits_reached_bottom_multiple(self, game_engine):
+        """Test tracking multiple fruits reaching bottom in same step"""
+        batch_size, num_inits = 1, 1
+        input_size = game_engine.config.game_config.get_inputsize()
+        screen_height = game_engine.config.game_config.screen_height
+        
+        inputs_state = torch.zeros(batch_size, num_inits, input_size)
+        inputs_state[0, 0, 0] = 5  # sprite position
+        # Set up two fruits to reach bottom
+        inputs_state[0, 0, 1] = 1  # fruit 1 x position (missed)
+        inputs_state[0, 0, 2] = screen_height - 2  # fruit 1 y position  
+        inputs_state[0, 0, 3] = 1  # fruit 1 active
+        inputs_state[0, 0, 4] = 8  # fruit 2 x position (missed)
+        inputs_state[0, 0, 5] = screen_height - 2  # fruit 2 y position
+        inputs_state[0, 0, 6] = 1  # fruit 2 active
+        
+        game_state = torch.zeros(batch_size, num_inits, 3)
+        
+        with patch.object(game_engine.brain, 'sample_action', return_value=(torch.tensor([1]), torch.tensor([0.0]))):
+            new_inputs, actions, new_game_state = game_engine.update(inputs_state, game_state)
+        
+        # Check that fruits reached bottom count is incremented by 2
+        assert new_game_state[0, 0, 2].item() == 2  # two fruits reached bottom
 
-# Existing TestTrainer class continues here...
+    def test_fruits_reached_bottom_caught_vs_missed(self, game_engine):
+        """Test that both caught and missed fruits count as reaching bottom"""
+        batch_size, num_inits = 1, 1
+        input_size = game_engine.config.game_config.get_inputsize()
+        screen_height = game_engine.config.game_config.screen_height
+        
+        inputs_state = torch.zeros(batch_size, num_inits, input_size)
+        inputs_state[0, 0, 0] = 5  # sprite position
+        # Set up two fruits: one caught, one missed
+        inputs_state[0, 0, 1] = 5  # fruit 1 x position (same as sprite - will be caught)
+        inputs_state[0, 0, 2] = screen_height - 2  # fruit 1 y position  
+        inputs_state[0, 0, 3] = 1  # fruit 1 active
+        inputs_state[0, 0, 4] = 8  # fruit 2 x position (different from sprite - will be missed)
+        inputs_state[0, 0, 5] = screen_height - 2  # fruit 2 y position
+        inputs_state[0, 0, 6] = 1  # fruit 2 active
+        
+        game_state = torch.zeros(batch_size, num_inits, 3)
+        
+        with patch.object(game_engine.brain, 'sample_action', return_value=(torch.tensor([1]), torch.tensor([0.0]))):
+            new_inputs, actions, new_game_state = game_engine.update(inputs_state, game_state)
+        
+        # Check that fruits reached bottom count includes both caught and missed fruits
+        assert new_game_state[0, 0, 2].item() == 2  # both fruits reached bottom
+        assert new_game_state[0, 0, 0].item() == 0  # score: +1 for caught, -1 for missed = 0
