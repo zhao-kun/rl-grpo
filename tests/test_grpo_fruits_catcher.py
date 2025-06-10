@@ -38,7 +38,7 @@ class TestTrainer:
         
         # Check the shape of the result
         assert result.shape == (num_inits, input_size)
-        assert game_state.shape == (num_inits, 2)
+        assert game_state.shape == (num_inits, 3)  # Updated to expect 3 dimensions: score, step_count, activated_fruits_count
         
     def test_create_init_sprites_values(self, trainer):
         result, game_state = trainer._create_init()
@@ -118,7 +118,7 @@ class TestGameEngine:
         inputs_state = torch.zeros(batch_size, num_inits, input_size)
         inputs_state[0, 0, 0] = 5  # sprite x position
         
-        game_state = torch.zeros(batch_size, num_inits, 2)
+        game_state = torch.zeros(batch_size, num_inits, 3)
         
         # Mock brain to always return action 1 (stay)
         with patch.object(game_engine.brain, 'sample_action', return_value=(torch.tensor([1]), torch.tensor([0.0]))):
@@ -135,7 +135,7 @@ class TestGameEngine:
         inputs_state = torch.zeros(batch_size, num_inits, input_size)
         inputs_state[0, 0, 0] = 5  # sprite x position
         
-        game_state = torch.zeros(batch_size, num_inits, 2)
+        game_state = torch.zeros(batch_size, num_inits, 3)
         
         # Mock brain to return action 0 (left)
         with patch.object(game_engine.brain, 'sample_action', return_value=(torch.tensor([0]), torch.tensor([0.0]))):
@@ -152,7 +152,7 @@ class TestGameEngine:
         inputs_state = torch.zeros(batch_size, num_inits, input_size)
         inputs_state[0, 0, 0] = 5  # sprite x position
         
-        game_state = torch.zeros(batch_size, num_inits, 2)
+        game_state = torch.zeros(batch_size, num_inits, 3)
         
         # Mock brain to return action 2 (right)
         with patch.object(game_engine.brain, 'sample_action', return_value=(torch.tensor([2]), torch.tensor([0.0]))):
@@ -169,7 +169,7 @@ class TestGameEngine:
         inputs_state = torch.zeros(batch_size, num_inits, input_size)
         inputs_state[0, 0, 0] = 0  # sprite at leftmost position
         
-        game_state = torch.zeros(batch_size, num_inits, 2)
+        game_state = torch.zeros(batch_size, num_inits, 3)
         
         # Mock brain to return action 0 (left)
         with patch.object(game_engine.brain, 'sample_action', return_value=(torch.tensor([0]), torch.tensor([0.0]))):
@@ -186,7 +186,7 @@ class TestGameEngine:
         inputs_state = torch.zeros(batch_size, num_inits, input_size)
         inputs_state[0, 0, 0] = screen_width - 1  # sprite at rightmost position
         
-        game_state = torch.zeros(batch_size, num_inits, 2)
+        game_state = torch.zeros(batch_size, num_inits, 3)
         
         # Mock brain to return action 2 (right)
         with patch.object(game_engine.brain, 'sample_action', return_value=(torch.tensor([2]), torch.tensor([0.0]))):
@@ -205,7 +205,7 @@ class TestGameEngine:
         inputs_state[0, 0, 2] = 2  # fruit 1 y position
         inputs_state[0, 0, 3] = 1  # fruit 1 active
         
-        game_state = torch.zeros(batch_size, num_inits, 2)
+        game_state = torch.zeros(batch_size, num_inits, 3)
         
         with patch.object(game_engine.brain, 'sample_action', return_value=(torch.tensor([1]), torch.tensor([0.0]))):
             new_inputs, actions, new_game_state = game_engine.update(inputs_state, game_state)
@@ -224,7 +224,7 @@ class TestGameEngine:
         inputs_state[0, 0, 2] = screen_height - 2  # fruit 1 y position (will reach bottom after falling)
         inputs_state[0, 0, 3] = 1  # fruit 1 active
         
-        game_state = torch.zeros(batch_size, num_inits, 2)
+        game_state = torch.zeros(batch_size, num_inits, 3)
         
         with patch.object(game_engine.brain, 'sample_action', return_value=(torch.tensor([1]), torch.tensor([0.0]))):
             new_inputs, actions, new_game_state = game_engine.update(inputs_state, game_state)
@@ -244,7 +244,7 @@ class TestGameEngine:
         inputs_state[0, 0, 2] = screen_height - 2  # fruit 1 y position (will reach bottom after falling)
         inputs_state[0, 0, 3] = 1  # fruit 1 active
         
-        game_state = torch.zeros(batch_size, num_inits, 2)
+        game_state = torch.zeros(batch_size, num_inits, 3)
         
         with patch.object(game_engine.brain, 'sample_action', return_value=(torch.tensor([1]), torch.tensor([0.0]))):
             new_inputs, actions, new_game_state = game_engine.update(inputs_state, game_state)
@@ -260,7 +260,7 @@ class TestGameEngine:
         inputs_state = torch.zeros(batch_size, num_inits, input_size)
         inputs_state[0, 0, 0] = 5  # sprite position
         
-        game_state = torch.zeros(batch_size, num_inits, 2)
+        game_state = torch.zeros(batch_size, num_inits, 3)
         game_state[0, 0, 1] = 10  # initial step count
         
         with patch.object(game_engine.brain, 'sample_action', return_value=(torch.tensor([1]), torch.tensor([0.0]))):
@@ -282,7 +282,7 @@ class TestGameEngine:
         inputs_state[1, 1, 0] = 7
         inputs_state[1, 2, 0] = 8
         
-        game_state = torch.zeros(batch_size, num_inits, 2)
+        game_state = torch.zeros(batch_size, num_inits, 3)
         
         # Mock brain to return different actions for each game
         mock_actions = torch.tensor([1, 0, 2, 1, 2, 0])  # stay, left, right, stay, right, left

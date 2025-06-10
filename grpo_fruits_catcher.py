@@ -113,12 +113,12 @@ class GameEngine:
         
         Args:
             inputs_state: shape (batch_size, num_inits, input_size) - current game states
-            game_state: shape (batch_size, num_inits, 2) - [score, step_count] for each game
+            game_state: shape (batch_size, num_inits, 3) - [score, step_count, activated_fruits_count] for each game
             
         Returns:
             new_inputs_state: updated game states
             actions: chosen actions for each game
-            new_game_state: updated game states with scores and step counts
+            new_game_state: updated game states with scores, step counts, and activated fruits count
         """
         batch_size, num_inits, input_size = inputs_state.shape
         game_config = self.config.game_config
@@ -149,6 +149,8 @@ class GameEngine:
                 
                 # Process fruits (3 fruits, each with 3 dimensions: x, y, activation)
                 score_change = 0
+                activated_fruits_in_step = 0
+                fruits_deactivated_this_step = 0
                 
                 for fruit_idx in range(game_config.max_fruits_on_screen):
                     fruit_start = 1 + fruit_idx * 3
@@ -172,24 +174,25 @@ class GameEngine:
                                 # Sprite caught the fruit
                                 score_change += 1
                                 new_inputs_state[b, i, fruit_start + 2] = 0  # deactivate fruit
-                                print(f"DEBUG: Fruit caught! Score +1, deactivated fruit at index {fruit_start + 2}")
+                                fruits_deactivated_this_step += 1
                             else:
                                 # Fruit reached bottom without being caught
                                 score_change -= 1
                                 new_inputs_state[b, i, fruit_start + 2] = 0  # deactivate fruit
-                                print(f"DEBUG: Fruit missed! Score -1, deactivated fruit at index {fruit_start + 2}")
+                                fruits_deactivated_this_step += 1
                         elif fruit_y >= game_config.screen_height:
                             # Fruit went off screen
                             new_inputs_state[b, i, fruit_start + 2] = 0  # deactivate fruit
-                            print(f"DEBUG: Fruit off screen, deactivated fruit at index {fruit_start + 2}")
+                            fruits_deactivated_this_step += 1
                         else:
-                            print(f"DEBUG: Fruit still falling, y={fruit_y}, sprite_y={sprite_y}")
+                            pass
                 
                 # Count currently active fruits after processing
                 active_fruits = sum(new_inputs_state[b, i, 1 + j * 3 + 2].item() for j in range(game_config.max_fruits_on_screen))
                 
-                # Spawn new fruit if conditions are met
-                if (active_fruits < game_config.max_fruits_on_screen and 
+                # Only spawn new fruit if no fruits were deactivated this step (to avoid immediate respawning)
+                if (fruits_deactivated_this_step == 0 and
+                    active_fruits < game_config.max_fruits_on_screen and 
                     active_fruits >= game_config.min_fruits_on_screen and 
                     random.randint(0, 1) == 1):
                     
@@ -200,6 +203,7 @@ class GameEngine:
                             new_inputs_state[b, i, fruit_start] = random.randint(0, game_config.screen_width - 1)  # x
                             new_inputs_state[b, i, fruit_start + 1] = 0  # y
                             new_inputs_state[b, i, fruit_start + 2] = 1  # activate
+                            activated_fruits_in_step += 1
                             break
                 
                 # Ensure minimum fruits are active
@@ -211,14 +215,16 @@ class GameEngine:
                             new_inputs_state[b, i, fruit_start] = random.randint(0, game_config.screen_width - 1)  # x
                             new_inputs_state[b, i, fruit_start + 1] = 0  # y
                             new_inputs_state[b, i, fruit_start + 2] = 1  # activate
+                            activated_fruits_in_step += 1
                             current_active += 1
                             break
                     if current_active >= game_config.min_fruits_on_screen:
                         break
                 
-                # Update score and step count
+                # Update score, step count, and activated fruits count
                 new_game_state[b, i, 0] += score_change  # score
                 new_game_state[b, i, 1] += 1  # step count
+                new_game_state[b, i, 2] += activated_fruits_in_step  # total activated fruits count
         
         return new_inputs_state, actions, new_game_state
 
@@ -257,9 +263,13 @@ class Trainer:
         # input_size = 10, composed of: sprite position (1) + fruits data (3 fruits × 3 dimensions = 9)
         result = torch.cat([sprites, fruits_flat], dim=1)
 
-        # game_state stores the state of each game, each game has 2 dimensions to save its state:
+        # game_state stores the state of each game, each game has 3 dimensions to save its state:
         # index 0 is the score, index 1 indicates number of step when game invoke update, step increse 1.
-        game_state = torch.zeros((num_inits, 2), dtype=torch.float32, device=self.device)
+        # index 2 is the total count of fruits that have been activated during the game
+        game_state = torch.zeros((num_inits, 3), dtype=torch.float32, device=self.device)
+        
+        # Initialize the activated fruits count with 1 for each game (since we start with one active fruit)
+        game_state[:, 2] = 1.0  # Each game starts with 1 activated fruit
         
         return result, game_state
     
