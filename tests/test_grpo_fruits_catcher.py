@@ -85,6 +85,40 @@ class TestTrainer:
             # Third fruit activation status  
             assert result[idx, 9].item() == 0
 
+class TestTrainEpoch:
+    """Test suite for the _train_epoch method."""
+    
+    @pytest.fixture
+    def trainer(self):
+        device = "cpu"
+        game_config = GameConfig(
+            screen_width=10,
+            screen_height=5,
+            max_fruits_on_screen=2
+        )
+        train_config = TrainerConfig(
+            game_config=game_config,
+            batch_size=4,
+            max_steps=10,
+            hidden_size=32,
+            lr_rate=1e-3
+        )
+        return Trainer(train_config, device)
+    
+    def test_train_epoch_return_types(self, trainer):
+        """Test that _train_epoch returns correct types"""
+        avg_reward, avg_score = trainer._train_epoch()
+        
+        assert isinstance(avg_reward, float), "Average reward should be a float"
+        assert isinstance(avg_score, float), "Average score should be a float"
+    
+    def test_train_epoch_return_values_finite(self, trainer):
+        """Test that _train_epoch returns finite values"""
+        avg_reward, avg_score = trainer._train_epoch()
+        
+        assert torch.isfinite(torch.tensor(avg_reward, dtype=torch.float32)), "Average reward should be finite"
+        assert torch.isfinite(torch.tensor(avg_score, dtype=torch.float32)), "Average score should be finite"
+
 class TestGameEngine:
 
     @pytest.fixture

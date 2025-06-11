@@ -1,6 +1,7 @@
 .vscode/
 *.pth
 *.png
+*.bak
 .venv/
 .others/
 __pycache__/
