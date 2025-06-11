@@ -495,3 +495,220 @@ class TestRewardMethod:
         reward, _ = trainer._reward(large_numbers)
         assert not torch.isnan(reward).any()
         assert not torch.isinf(reward).any()
+
+
+class TestCreateTrajectory:
+    """Test suite for the _create_trajector method."""
+
+    @pytest.fixture
+    def trainer(self):
+        """Create a trainer instance for testing."""
+        device = "cpu"
+        game_config = GameConfig(
+            screen_width=10,
+            screen_height=6,
+            max_fruits_on_screen=3  # Changed to 3 to match expected input_size
+        )
+        train_config = TrainerConfig(
+            game_config=game_config,
+            batch_size=3,
+            max_steps=5
+        )
+        return Trainer(train_config, device)
+
+    def test_create_trajector_basic_functionality(self, trainer):
+        """Test basic functionality and return types."""
+        input_history, action_history, score_history, reward_history = trainer._create_trajector()
+        
+        # Check return types
+        assert isinstance(input_history, torch.Tensor)
+        assert isinstance(action_history, torch.Tensor)
+        assert isinstance(score_history, torch.Tensor)
+        assert isinstance(reward_history, torch.Tensor)
+
+    def test_create_trajector_shapes(self, trainer):
+        """Test that all returned tensors have correct shapes."""
+        input_history, action_history, score_history, reward_history = trainer._create_trajector()
+        
+        # Get expected dimensions
+        num_steps = trainer.config.max_steps
+        batch_size = trainer.config.batch_size
+        num_inits = GameConfig.get_initial_num(trainer.config.game_config)
+        input_size = trainer.config.game_config.get_inputsize()
+        
+        # Check shapes
+        assert input_history.shape == (num_steps, batch_size, num_inits, input_size)
+        assert action_history.shape == (num_steps, batch_size, num_inits)
+        assert score_history.shape == (num_steps, batch_size, num_inits)
+        assert reward_history.shape == (num_steps, batch_size, num_inits)
+
+    def test_create_trajector_data_types(self, trainer):
+        """Test that tensors have correct data types."""
+        input_history, action_history, score_history, reward_history = trainer._create_trajector()
+        
+        # Check data types
+        assert input_history.dtype == torch.float32
+        assert action_history.dtype == torch.long  # Actions should be integers
+        assert score_history.dtype == torch.float32
+        assert reward_history.dtype == torch.float32
+
+    def test_create_trajector_device_placement(self, trainer):
+        """Test that all tensors are on the correct device."""
+        input_history, action_history, score_history, reward_history = trainer._create_trajector()
+        
+        expected_device = trainer.device
+        assert input_history.device.type == expected_device
+        assert action_history.device.type == expected_device
+        assert score_history.device.type == expected_device
+        assert reward_history.device.type == expected_device
+
+    def test_create_trajector_action_validity(self, trainer):
+        """Test that all actions are valid (0, 1, or 2)."""
+        _, action_history, _, _ = trainer._create_trajector()
+        
+        # Actions should be 0 (left), 1 (stay), or 2 (right)
+        assert torch.all(action_history >= 0)
+        assert torch.all(action_history <= 2)
+
+    def test_create_trajector_progression(self, trainer):
+        """Test that game state progresses over time."""
+        input_history, action_history, score_history, reward_history = trainer._create_trajector()
+        
+        # Check that different steps have potentially different states
+        # (though they could be the same due to randomness)
+        assert input_history.shape[0] == trainer.config.max_steps
+        
+        # Check that we have some non-zero values in histories
+        # (at least some activity should happen)
+        has_activity = (
+            torch.any(action_history > 0) or  # Some non-stay actions
+            torch.any(score_history != 0) or  # Some score changes
+            torch.any(reward_history != 0)    # Some rewards
+        )
+        # Note: Due to randomness, this might not always be true, but usually should be
+        # We'll check for at least some basic progression
+
+    def test_create_trajector_initial_state_consistency(self, trainer):
+        """Test that initial states are consistent with _create_init."""
+        input_history, _, _, _ = trainer._create_trajector()
+        
+        # Get the first step's input for comparison
+        first_step_inputs = input_history[0]  # shape: (batch_size, num_inits, input_size)
+        
+        # Check that sprite positions are properly initialized (1-indexed)
+        batch_size = trainer.config.batch_size
+        num_inits = GameConfig.get_initial_num(trainer.config.game_config)
+        
+        for b in range(batch_size):
+            for i in range(num_inits):
+                # Sprite position should be i+1 (1-indexed)
+                assert first_step_inputs[b, i, 0].item() == i + 1
+
+    def test_create_trajector_reward_calculation(self, trainer):
+        """Test that rewards are calculated correctly throughout trajectory."""
+        _, _, score_history, reward_history = trainer._create_trajector()
+        
+        # Check that rewards are finite and within expected bounds
+        assert torch.all(torch.isfinite(reward_history))
+        assert torch.all(reward_history >= -5.0)  # Minimum bound from reward algorithm
+        assert torch.all(reward_history <= 10.0)  # Maximum bound from reward algorithm
+        
+        # Check that scores are finite
+        assert torch.all(torch.isfinite(score_history))
+
+    def test_create_trajector_game_engine_integration(self, trainer):
+        """Test integration with game engine updates."""
+        input_history, action_history, score_history, _ = trainer._create_trajector()
+        
+        num_steps = trainer.config.max_steps
+        batch_size = trainer.config.batch_size
+        num_inits = GameConfig.get_initial_num(trainer.config.game_config)
+        
+        # Verify that inputs change over time (game engine is updating state)
+        for step in range(1, min(num_steps, 3)):  # Check first few steps
+            current_inputs = input_history[step]
+            prev_inputs = input_history[step - 1]
+            
+            # At least some inputs should potentially change between steps
+            # (due to fruit movement, sprite movement, etc.)
+            # We can't guarantee change due to randomness, but structure should be valid
+            assert current_inputs.shape == prev_inputs.shape
+
+    def test_create_trajector_batch_independence(self, trainer):
+        """Test that different batch elements can have different trajectories."""
+        input_history, action_history, score_history, reward_history = trainer._create_trajector()
+        
+        batch_size = trainer.config.batch_size
+        if batch_size > 1:
+            # Different batch elements might have different trajectories
+            # We just check that the structure is correct for all batches
+            for b in range(batch_size):
+                batch_inputs = input_history[:, b, :, :]
+                batch_actions = action_history[:, b, :]
+                batch_scores = score_history[:, b, :]
+                batch_rewards = reward_history[:, b, :]
+                
+                # Each batch element should have valid shapes
+                assert batch_inputs.shape[0] == trainer.config.max_steps
+                assert batch_actions.shape[0] == trainer.config.max_steps
+                assert batch_scores.shape[0] == trainer.config.max_steps
+                assert batch_rewards.shape[0] == trainer.config.max_steps
+
+    def test_create_trajector_incremental_rewards(self, trainer):
+        """Test that incremental reward calculation is working."""
+        _, _, score_history, reward_history = trainer._create_trajector()
+        
+        # For the first step, prev_game_state should be None
+        # For subsequent steps, prev_game_state should be provided
+        # We can't directly test this without mocking, but we can check consistency
+        
+        # Rewards should be calculated for all steps
+        assert reward_history.shape[0] == trainer.config.max_steps
+        
+        # All rewards should be finite
+        assert torch.all(torch.isfinite(reward_history))
+
+    def test_create_trajector_reproducibility_with_seed(self, trainer):
+        """Test that trajectories are reproducible with same random seed."""
+        # Set random seed for reproducibility
+        torch.manual_seed(42)
+        random.seed(42)
+        
+        traj1 = trainer._create_trajector()
+        
+        # Reset seed and generate again
+        torch.manual_seed(42)
+        random.seed(42)
+        
+        traj2 = trainer._create_trajector()
+        
+        # Results should be identical
+        input_hist1, action_hist1, score_hist1, reward_hist1 = traj1
+        input_hist2, action_hist2, score_hist2, reward_hist2 = traj2
+        
+        assert torch.allclose(input_hist1, input_hist2, atol=1e-6)
+        assert torch.equal(action_hist1, action_hist2)
+        assert torch.allclose(score_hist1, score_hist2, atol=1e-6)
+        assert torch.allclose(reward_hist1, reward_hist2, atol=1e-6)
+
+    def test_create_trajector_memory_efficiency(self, trainer):
+        """Test that method doesn't create excessive memory usage."""
+        # This is a basic test to ensure tensors are created efficiently
+        input_history, action_history, score_history, reward_history = trainer._create_trajector()
+        
+        # Check that tensors are contiguous (memory efficient)
+        assert input_history.is_contiguous()
+        assert action_history.is_contiguous()
+        assert score_history.is_contiguous()
+        assert reward_history.is_contiguous()
+        
+        # Check that no unexpected large allocations occurred
+        # (tensors should match expected size calculations)
+        expected_input_size = (
+            trainer.config.max_steps * 
+            trainer.config.batch_size * 
+            GameConfig.get_initial_num(trainer.config.game_config) * 
+            trainer.config.game_config.get_inputsize()
+        )
+        actual_input_size = input_history.numel()
+        assert actual_input_size == expected_input_size

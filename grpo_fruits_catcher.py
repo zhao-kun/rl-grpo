@@ -1,12 +1,12 @@
 from dataclasses import dataclass, field
 from typing import Optional, Tuple
 from torch import nn
-import np
-import tqdm
 
 import torch
 import torch.nn.functional as F 
 import random
+import numpy as np
+from tqdm import tqdm
 
 @dataclass
 class GameConfig:
