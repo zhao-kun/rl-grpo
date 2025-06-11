@@ -35,6 +35,7 @@ class TrainerConfig:
     total_epochs: int = 20
     max_steps: int = 200  # maximum number of steps before game ends
     game_config: Optional[GameConfig] = field(default_factory=GameConfig)
+    lr_rate: float = 1e-4
 
 
 class GameBrain(nn.Module):
@@ -243,7 +244,8 @@ class Trainer:
         self.brain = GameBrain(config)
         self.engin = GameEngine(config, self.brain)
         self.device = device
-        self.optimizer = self.brain.parameters()
+        # Fix: Create proper optimizer instead of just parameters
+        self.optimizer = torch.optim.Adam(self.brain.parameters(), lr=self.config.lr_rate)
     
     def _create_init(self) -> Tuple[torch.Tensor, torch.Tensor]:
         '''
@@ -514,7 +516,13 @@ class Trainer:
 
         return -torch.mean(log_action_probs * reward)  # Scalar loss averaged over the batch
     
-    def _train_epoch(self) -> float:
+    def _train_epoch(self) -> Tuple[float, float]:
+        """
+        Train for one epoch using GRPO (Group Reward Policy Optimization).
+        
+        Returns:
+            Tuple[float, float]: (average_reward, average_score) for the epoch
+        """
 
         num_steps = self.config.max_steps
         batch_size = self.config.batch_size
