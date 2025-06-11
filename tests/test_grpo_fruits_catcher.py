@@ -362,3 +362,136 @@ class TestGameEngine:
         # Check that fruits reached bottom count includes both caught and missed fruits
         assert new_game_state[0, 0, 2].item() == 2  # both fruits reached bottom
         assert new_game_state[0, 0, 0].item() == 0  # score: +1 for caught, -1 for missed = 0
+
+
+class TestRewardMethod:
+    """Test suite for the advanced reward algorithm."""
+
+    @pytest.fixture
+    def trainer(self):
+        """Create a trainer instance for testing."""
+        device = "cpu"
+        game_config = GameConfig(
+            screen_width=20,
+            screen_height=11,
+            max_fruits_on_screen=3
+        )
+        train_config = TrainerConfig(game_config=game_config)
+        return Trainer(train_config, device)
+
+    def test_reward_basic_functionality(self, trainer):
+        """Test basic reward method functionality and return types."""
+        # Test single game state
+        game_state = torch.tensor([[[5.0, 10.0, 5.0]]])  # score=5, steps=10, fruits=5
+        
+        reward, score = trainer._reward(game_state)
+        
+        # Check return types and shapes
+        assert isinstance(reward, torch.Tensor)
+        assert isinstance(score, torch.Tensor)
+        assert reward.shape == (1, 1)
+        assert score.shape == (1, 1)
+        assert score.item() == 5.0
+
+    def test_reward_perfect_performance(self, trainer):
+        """Test reward for perfect catch rate (100%)."""
+        # Perfect performance: all 5 fruits caught
+        game_state = torch.tensor([[[5.0, 10.0, 5.0]]])
+        
+        reward, score = trainer._reward(game_state)
+        
+        # Perfect performance should yield positive reward
+        assert reward.item() > 1.0  # Should be significantly positive
+        assert score.item() == 5.0
+
+    def test_reward_poor_performance(self, trainer):
+        """Test reward for poor catch rate."""
+        # Poor performance: missed more than caught
+        game_state = torch.tensor([[[-3.0, 10.0, 5.0]]])  # score=-3, 2 caught, 5 missed
+        
+        reward, score = trainer._reward(game_state)
+        
+        # Poor performance should yield lower reward
+        assert reward.item() < 1.0
+        assert score.item() == -3.0
+
+    def test_reward_incremental_calculation(self, trainer):
+        """Test incremental reward calculation with previous state."""
+        # Previous state
+        prev_state = torch.tensor([[[2.0, 5.0, 3.0]]])  # score=2, steps=5, fruits=3
+        
+        # Current state (caught 1 more fruit)
+        curr_state = torch.tensor([[[3.0, 6.0, 4.0]]])  # score=3, steps=6, fruits=4
+        
+        reward_with_prev, _ = trainer._reward(curr_state, prev_state)
+        reward_without_prev, _ = trainer._reward(curr_state)
+        
+        # With previous state should account for incremental changes
+        assert reward_with_prev.item() != reward_without_prev.item()
+        # Should get immediate reward for the +1 score change
+        assert reward_with_prev.item() > 0
+
+    def test_reward_catch_rate_bonus(self, trainer):
+        """Test exponential catch rate bonus."""
+        # High catch rate scenario
+        high_catch_state = torch.tensor([[[9.0, 15.0, 10.0]]])  # 90% catch rate
+        
+        # Low catch rate scenario  
+        low_catch_state = torch.tensor([[[1.0, 15.0, 10.0]]])   # 10% catch rate
+        
+        high_reward, _ = trainer._reward(high_catch_state)
+        low_reward, _ = trainer._reward(low_catch_state)
+        
+        # High catch rate should get significantly higher reward
+        assert high_reward.item() > low_reward.item()
+
+    def test_reward_batch_processing(self, trainer):
+        """Test reward calculation with batch of game states."""
+        # Batch of different performance levels
+        batch_states = torch.tensor([
+            [[5.0, 10.0, 5.0]],   # Perfect performance
+            [[0.0, 10.0, 5.0]],   # Break-even
+            [[-2.0, 10.0, 5.0]]   # Poor performance
+        ])
+        
+        rewards, scores = trainer._reward(batch_states)
+        
+        # Check shapes
+        assert rewards.shape == (3, 1)
+        assert scores.shape == (3, 1)
+        
+        # Perfect > break-even > poor performance
+        assert rewards[0].item() > rewards[1].item() > rewards[2].item()
+        
+        # Scores should match input
+        assert scores[0].item() == 5.0
+        assert scores[1].item() == 0.0
+        assert scores[2].item() == -2.0
+
+    def test_reward_bounds(self, trainer):
+        """Test that rewards are properly bounded."""
+        # Extreme positive performance
+        extreme_positive = torch.tensor([[[100.0, 20.0, 100.0]]])
+        
+        # Extreme negative performance  
+        extreme_negative = torch.tensor([[[-100.0, 20.0, 100.0]]])
+        
+        pos_reward, _ = trainer._reward(extreme_positive)
+        neg_reward, _ = trainer._reward(extreme_negative)
+        
+        # Should be bounded within reasonable range
+        assert -5.0 <= pos_reward.item() <= 10.0
+        assert -5.0 <= neg_reward.item() <= 10.0
+
+    def test_reward_edge_cases(self, trainer):
+        """Test reward calculation for edge cases."""
+        # Zero steps (should not crash)
+        zero_steps = torch.tensor([[[0.0, 0.0, 0.0]]])
+        reward, _ = trainer._reward(zero_steps)
+        assert not torch.isnan(reward).any()
+        
+        # Very large numbers
+        large_numbers = torch.tensor([[[1000.0, 1000.0, 1000.0]]])
+        reward, _ = trainer._reward(large_numbers)
+        assert not torch.isnan(reward).any()
+        assert not torch.isinf(reward).any()
