@@ -13,7 +13,7 @@ class GameConfig:
     """Configuration for the fruit catching game"""
     screen_width: int = 20
     screen_height: int = 11
-    sprite_width: int = 5
+    sprite_width: int = 3
     sprite_height: int = 1
     max_fruits_on_screen: int = 3
     min_fruits_on_screen: int = 1
@@ -34,7 +34,8 @@ class TrainerConfig:
     total_epochs: int = 200
     max_steps: int = 200  # maximum number of steps before game ends
     game_config: Optional[GameConfig] = field(default_factory=GameConfig)
-    lr_rate: float = 1e-3
+    lr_rate: float = 5e-4
+    compile: bool = False
 
 
 class GameBrain(nn.Module):
@@ -43,21 +44,24 @@ class GameBrain(nn.Module):
         super(GameBrain, self).__init__()
         self.device = device
         self.input_size = config.game_config.get_inputsize()
-        self.fc1 = nn.Linear(self.input_size, config.hidden_size)
-        self.fc2 = nn.Linear(config.hidden_size, 3)  # 3 actions: left, stay, right
-        self.to(device)  # Move entire model to device
+        self.fc_in = nn.Linear(self.input_size, config.hidden_size)
+        self.fc1 = nn.Linear(config.hidden_size, config.hidden_size)
+        self.fc_out = nn.Linear(config.hidden_size, 3)  # 3 actions: left, stay, right
         self._init_weights()
 
     def _init_weights(self):
         """Initialize network weights"""
+        nn.init.xavier_uniform_(self.fc_in.weight)
+        nn.init.constant_(self.fc_in.bias, 0)
+        nn.init.xavier_uniform_(self.fc_out.weight)
+        nn.init.constant_(self.fc_out.bias, 0)
         nn.init.xavier_uniform_(self.fc1.weight)
         nn.init.constant_(self.fc1.bias, 0)
-        nn.init.xavier_uniform_(self.fc2.weight)
-        nn.init.constant_(self.fc2.bias, 0)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = F.relu(self.fc_in(x))
         x = F.relu(self.fc1(x))
-        x = self.fc2(x)
+        x = self.fc_out(x)
         return x
 
     
@@ -72,10 +76,10 @@ class GameBrain(nn.Module):
             Action logits of shape (batch_size, output_size)
         """
         # Input -> Hidden layer with ReLU activation
-        hidden = F.relu(self.fc1(x))
+        hidden = F.relu(self.fc_in(x))
         
         # Hidden -> Output layer (logits)
-        logits = self.fc2(hidden)
+        logits = self.fc_out(hidden)
         
         return logits
     
@@ -251,10 +255,15 @@ class Trainer:
     def __init__(self, config: TrainerConfig, device: str):
         self.config = config
         self.device = device
-        self.brain = GameBrain(config, device)
+        self.brain = torch.compile(GameBrain(config, device).to(device)) if config.compile else GameBrain(config, device).to(device)
         self.engin = GameEngine(config, self.brain)
         # Fix: Create proper optimizer instead of just parameters
-        self.optimizer = torch.optim.Adam(self.brain.parameters(), lr=self.config.lr_rate)
+        #self.optimizer = torch.optim.Adam(self.brain.parameters(), lr=self.config.lr_rate)
+        self.optimizer = torch.optim.AdamW(self.brain.parameters(), 
+                                           lr=self.config.lr_rate, 
+                                           betas=(0.9, 0.95), 
+                                           eps=1e-8)
+
     
     def _create_init(self) -> Tuple[torch.Tensor, torch.Tensor]:
         '''
@@ -442,10 +451,11 @@ class Trainer:
         
         return final_reward
     
-    def save(self, path: str):
+    def save(self, name: str):
         """
         Save the trained model to the specified path.
         Args:
             path (str): Path to save the model
         """
-        torch.save(self.model.state_dict(), path)
+        path = f"{name}-{self.config.total_epochs:06d}.pth"
+        torch.save(self.brain.state_dict(), path)
