@@ -72,7 +72,7 @@ class TestTrainEpoch:
     
     def test_train_epoch_policy_loss_called(self, trainer, mock_create_trajector):
         """Test that _policy_loss is called for each time step"""
-        with patch.object(trainer, '_policy_loss', return_value=torch.tensor(0.5)) as mock_policy_loss:
+        with patch.object(trainer, '_policy_loss', return_value=torch.tensor(0.5, requires_grad=True)) as mock_policy_loss:
             trainer._train_epoch()
             
             # Should be called max_steps times
@@ -120,7 +120,7 @@ class TestTrainEpoch:
             
             def mock_policy_loss(inputs, actions, rewards):
                 captured_rewards.append(rewards.clone())
-                return torch.tensor(0.1)
+                return torch.tensor(0.1, requires_grad=True)
             
             with patch.object(trainer, '_policy_loss', side_effect=mock_policy_loss):
                 trainer._train_epoch()
@@ -142,7 +142,7 @@ class TestTrainEpoch:
                 'actions': actions.shape,
                 'rewards': rewards.shape
             })
-            return torch.tensor(0.1)
+            return torch.tensor(0.1, requires_grad=True)
         
         with patch.object(trainer, '_policy_loss', side_effect=mock_policy_loss):
             trainer._train_epoch()

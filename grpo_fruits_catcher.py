@@ -208,47 +208,54 @@ class GameEngine:
         spawn_random = torch.rand(batch_size, num_inits, device=device) > 0.5
         should_spawn = can_spawn & spawn_random
         
-        # Combined fruit spawning loop: handle both random spawning and minimum fruit enforcement
+        # === OPTIMIZED VECTORIZED FRUIT SPAWNING (O(n) complexity) ===
         needs_more_fruits = active_fruit_counts < game_config.min_fruits_on_screen
-        for b in range(batch_size):
-            for i in range(num_inits):
-                # Calculate how many fruits we need to spawn
-                fruits_to_spawn = 0
-                
-                # Random spawning (if conditions met)
-                if should_spawn[b, i]:
-                    fruits_to_spawn += 1
-                
-                # Minimum fruit enforcement
-                if needs_more_fruits[b, i]:
-                    needed = int(game_config.min_fruits_on_screen - active_fruit_counts[b, i].item())
-                    fruits_to_spawn += needed
-                
-                # Spawn the required number of fruits
-                if fruits_to_spawn > 0:
-                    inactive_slots = (fruit_active[b, i] == 0.0).nonzero(as_tuple=True)[0]
-                    spawned = 0
-                    
-                    for j in range(min(fruits_to_spawn, len(inactive_slots))):
-                        slot = inactive_slots[j]
-                        
-                        # Check if spawning at y=0 violates minimum interval rule
-                        active_fruit_positions = fruit_y[b, i][fruit_active[b, i] == 1.0]
-                        can_spawn_at_zero = True
-                        if len(active_fruit_positions) > 0:
-                            min_distance = torch.min(torch.abs(active_fruit_positions - 0.0))
-                            if min_distance < game_config.min_interval_step_fruits:
-                                can_spawn_at_zero = False
-                        
-                        if can_spawn_at_zero:
-                            fruit_x[b, i, slot] = torch.randint(0, game_config.screen_width, (1,), 
-                                                              device=device, dtype=torch.float32)
-                            fruit_y[b, i, slot] = 0.0
-                            fruit_active[b, i, slot] = 1.0
-                            spawned += 1
-                            
-                            # Update active_fruit_counts for subsequent interval checks in this batch
-                            active_fruit_counts[b, i] += 1
+        
+        # Vectorized interval check: compute minimum distance to y=0 for all games
+        min_distances = torch.full((batch_size, num_inits), float('inf'), device=device)
+        
+        # Calculate minimum distances in batched way
+        for fruit_idx in range(max_fruits):
+            # Get y positions for this fruit slot across all games
+            y_positions = fruit_y[:, :, fruit_idx]  # (batch_size, num_inits)
+            is_active = fruit_active[:, :, fruit_idx] == 1.0  # (batch_size, num_inits)
+            
+            # Calculate distances to y=0 only for active fruits
+            distances = torch.abs(y_positions - 0.0)
+            
+            # Update minimum distances where fruits are active
+            min_distances = torch.where(is_active, 
+                                      torch.minimum(min_distances, distances), 
+                                      min_distances)
+        
+        # Determine which games can spawn (vectorized)
+        can_spawn_mask = (min_distances >= game_config.min_interval_step_fruits) | (min_distances == float('inf'))
+        
+        # Calculate total fruits needed per game (vectorized)
+        random_spawn_needed = should_spawn.int()
+        min_fruit_needed = torch.clamp(game_config.min_fruits_on_screen - active_fruit_counts.int(), min=0)
+        total_fruits_needed = random_spawn_needed + min_fruit_needed
+        
+        # Apply interval constraint
+        final_fruits_needed = total_fruits_needed * can_spawn_mask.int()
+        
+        # Spawn fruits efficiently (only loop where needed)
+        spawn_indices = (final_fruits_needed > 0).nonzero(as_tuple=False)
+        for idx in spawn_indices:
+            b, i = idx[0].item(), idx[1].item()
+            spawn_count = final_fruits_needed[b, i].item()
+            
+            # Find inactive slots
+            inactive_slots = (fruit_active[b, i] == 0.0).nonzero(as_tuple=True)[0]
+            actual_spawn = min(spawn_count, len(inactive_slots))
+            
+            # Batch spawn fruits
+            for j in range(actual_spawn):
+                slot = inactive_slots[j]
+                fruit_x[b, i, slot] = torch.randint(0, game_config.screen_width, (1,), 
+                                                  device=device, dtype=torch.float32)
+                fruit_y[b, i, slot] = 0.0
+                fruit_active[b, i, slot] = 1.0
         
         # Update fruit data back to the main tensor (create new tensor to avoid memory conflicts)
         fruit_data_flat = torch.stack([fruit_x, fruit_y, fruit_active], dim=3).view(batch_size, num_inits, -1)
