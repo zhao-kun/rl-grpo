@@ -17,6 +17,7 @@ class GameConfig:
     sprite_height: int = 1
     max_fruits_on_screen: int = 3
     min_fruits_on_screen: int = 1
+    min_interval_step_fruits: int = 3
 
     def get_inputsize(self):
         # Sprite position (1) + fruits data (max_fruits * 3 dimensions)
@@ -46,25 +47,21 @@ class GameBrain(nn.Module):
         self.input_size = config.game_config.get_inputsize()
         self.fc_in = nn.Linear(self.input_size, config.hidden_size)
         self.fc1 = nn.Linear(config.hidden_size, config.hidden_size)
+        self.dropout = nn.Dropout(0.1)  # Add dropout for regularization
         self.fc_out = nn.Linear(config.hidden_size, 3)  # 3 actions: left, stay, right
         self._init_weights()
 
     def _init_weights(self):
-        """Initialize network weights"""
-        nn.init.xavier_uniform_(self.fc_in.weight)
+        """Initialize network weights with better initialization"""
+        # Use He initialization for ReLU networks
+        nn.init.kaiming_normal_(self.fc_in.weight, mode='fan_in', nonlinearity='relu')
         nn.init.constant_(self.fc_in.bias, 0)
-        nn.init.xavier_uniform_(self.fc_out.weight)
-        nn.init.constant_(self.fc_out.bias, 0)
-        nn.init.xavier_uniform_(self.fc1.weight)
+        nn.init.kaiming_normal_(self.fc1.weight, mode='fan_in', nonlinearity='relu')
         nn.init.constant_(self.fc1.bias, 0)
+        # Small initialization for output layer to prevent extreme initial policy
+        nn.init.normal_(self.fc_out.weight, mean=0.0, std=0.01)
+        nn.init.constant_(self.fc_out.bias, 0)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = F.relu(self.fc_in(x))
-        x = F.relu(self.fc1(x))
-        x = self.fc_out(x)
-        return x
-
-    
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Forward pass through the network.
@@ -76,10 +73,11 @@ class GameBrain(nn.Module):
             Action logits of shape (batch_size, output_size)
         """
         # Input -> Hidden layer with ReLU activation
-        hidden = F.relu(self.fc_in(x))
-        
-        # Hidden -> Output layer (logits)
-        logits = self.fc_out(hidden)
+        x = F.relu(self.fc_in(x))
+        x = self.dropout(x)  # Apply dropout
+        x = F.relu(self.fc1(x))
+        x = self.dropout(x)  # Apply dropout
+        logits = self.fc_out(x)
         
         return logits
     
@@ -210,32 +208,47 @@ class GameEngine:
         spawn_random = torch.rand(batch_size, num_inits, device=device) > 0.5
         should_spawn = can_spawn & spawn_random
         
-        # Find inactive fruit slots and spawn new fruits
-        for b in range(batch_size):
-            for i in range(num_inits):
-                if should_spawn[b, i]:
-                    # Find first inactive fruit slot
-                    inactive_slots = (fruit_active[b, i] == 0.0).nonzero(as_tuple=True)[0]
-                    if len(inactive_slots) > 0:
-                        slot = inactive_slots[0]
-                        fruit_x[b, i, slot] = torch.randint(0, game_config.screen_width, (1,), 
-                                                          device=device, dtype=torch.float32)
-                        fruit_y[b, i, slot] = 0.0
-                        fruit_active[b, i, slot] = 1.0
-        
-        # Ensure minimum fruits are active
+        # Combined fruit spawning loop: handle both random spawning and minimum fruit enforcement
         needs_more_fruits = active_fruit_counts < game_config.min_fruits_on_screen
         for b in range(batch_size):
             for i in range(num_inits):
+                # Calculate how many fruits we need to spawn
+                fruits_to_spawn = 0
+                
+                # Random spawning (if conditions met)
+                if should_spawn[b, i]:
+                    fruits_to_spawn += 1
+                
+                # Minimum fruit enforcement
                 if needs_more_fruits[b, i]:
                     needed = int(game_config.min_fruits_on_screen - active_fruit_counts[b, i].item())
+                    fruits_to_spawn += needed
+                
+                # Spawn the required number of fruits
+                if fruits_to_spawn > 0:
                     inactive_slots = (fruit_active[b, i] == 0.0).nonzero(as_tuple=True)[0]
-                    for j in range(min(needed, len(inactive_slots))):
+                    spawned = 0
+                    
+                    for j in range(min(fruits_to_spawn, len(inactive_slots))):
                         slot = inactive_slots[j]
-                        fruit_x[b, i, slot] = torch.randint(0, game_config.screen_width, (1,), 
-                                                          device=device, dtype=torch.float32)
-                        fruit_y[b, i, slot] = 0.0
-                        fruit_active[b, i, slot] = 1.0
+                        
+                        # Check if spawning at y=0 violates minimum interval rule
+                        active_fruit_positions = fruit_y[b, i][fruit_active[b, i] == 1.0]
+                        can_spawn_at_zero = True
+                        if len(active_fruit_positions) > 0:
+                            min_distance = torch.min(torch.abs(active_fruit_positions - 0.0))
+                            if min_distance < game_config.min_interval_step_fruits:
+                                can_spawn_at_zero = False
+                        
+                        if can_spawn_at_zero:
+                            fruit_x[b, i, slot] = torch.randint(0, game_config.screen_width, (1,), 
+                                                              device=device, dtype=torch.float32)
+                            fruit_y[b, i, slot] = 0.0
+                            fruit_active[b, i, slot] = 1.0
+                            spawned += 1
+                            
+                            # Update active_fruit_counts for subsequent interval checks in this batch
+                            active_fruit_counts[b, i] += 1
         
         # Update fruit data back to the main tensor (create new tensor to avoid memory conflicts)
         fruit_data_flat = torch.stack([fruit_x, fruit_y, fruit_active], dim=3).view(batch_size, num_inits, -1)
@@ -257,12 +270,20 @@ class Trainer:
         self.device = device
         self.brain = torch.compile(GameBrain(config, device).to(device)) if config.compile else GameBrain(config, device).to(device)
         self.engin = GameEngine(config, self.brain)
-        # Fix: Create proper optimizer instead of just parameters
-        #self.optimizer = torch.optim.Adam(self.brain.parameters(), lr=self.config.lr_rate)
-        self.optimizer = torch.optim.AdamW(self.brain.parameters(), 
-                                           lr=self.config.lr_rate, 
-                                           betas=(0.9, 0.95), 
-                                           eps=1e-8)
+        # Improved optimizer configuration
+        self.optimizer = torch.optim.AdamW(
+            self.brain.parameters(), 
+            lr=self.config.lr_rate, 
+            betas=(0.9, 0.999), 
+            eps=1e-8,
+            weight_decay=1e-5  # Small weight decay for regularization
+        )
+        # Learning rate scheduler
+        self.scheduler = torch.optim.lr_scheduler.StepLR(
+            self.optimizer, 
+            step_size=1000,  # Reduce learning rate every 1000 epochs
+            gamma=0.95  # Multiply learning rate by 0.95
+        )
 
     
     def _create_init(self) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -303,7 +324,7 @@ class Trainer:
     
     def _reward(self, game_state: torch.Tensor, prev_game_state: torch.Tensor = None) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Calculate reward based on game state using exponential catch rate bonus.
+        Calculate reward based on game state with simpler, more stable reward structure.
         
         Args:
             game_state: shape (batch_size, num_inits, 3) containing [score, step_count, fruits_reached_bottom]
@@ -321,33 +342,38 @@ class Trainer:
         step_count = game_state[:, :, 1]  # number of steps taken
         fruits_reached_bottom = game_state[:, :, 2]  # total fruits that reached bottom
         
-        # Estimate caught fruits from score and total fruits
-        # Assuming: score = caught_fruits - missed_fruits = caught_fruits - (total_fruits - caught_fruits) = 2*caught_fruits - total_fruits
-        # So: caught_fruits = (score + total_fruits) / 2
-        total_fruits = fruits_reached_bottom
-        caught_fruits = torch.clamp((score + total_fruits) / 2.0, min=0.0)
-        caught_fruits = torch.min(caught_fruits, total_fruits)  # Ensure caught_fruits <= total_fruits
+        # Calculate incremental score change if previous state is available
+        if prev_game_state is not None:
+            prev_score = prev_game_state[:, :, 0]
+            score_delta = score - prev_score
+            
+            # Reward based on score change: +5 for catching fruit, -2 for missing (less penalty)
+            catch_reward = torch.clamp(score_delta, min=0.0) * 5.0  # Positive score changes (catching)
+            miss_penalty = torch.clamp(score_delta, max=0.0) * 2.0  # Negative score changes (missing)
+            immediate_reward = catch_reward + miss_penalty
+            
+            # Small step penalty to encourage efficiency
+            step_penalty = -0.01
+            
+            # Baseline reward to make rewards more positive
+            baseline_reward = 0.5
+            
+            # Small bonus for maintaining positive cumulative score
+            score_bonus = torch.clamp(score * 0.05, min=0.0, max=1.0)
+            
+            reward = immediate_reward + step_penalty + baseline_reward + score_bonus
+        else:
+            # Initial reward based on current score with baseline
+            reward = score * 0.1 + 0.5
         
-        # Calculate catch rate
-        catch_rate = caught_fruits / (total_fruits + 1e-6)
+        # Add very small noise for GRPO group variance
+        noise = torch.randn_like(score, device=device) * 0.03
+        reward = reward + noise
         
-        # Exponential bonus for catch rate - heavily rewards high performance  
-        catch_bonus = torch.exp(catch_rate * 2.0) - 1.0  # Range: 0 to ~6.4
+        # Clamp to reasonable bounds
+        reward = torch.clamp(reward, -5.0, 15.0)
         
-        # Score-based component (normalized)
-        score_component = score * 0.1
-        
-        # Survival bonus - reward staying alive longer
-        survival_bonus = 0.1
-        
-        # Penalty for poor performance (negative scores)
-        penalty = torch.clamp(score * -0.05, max=0.0)
-        
-        # Add small random noise to ensure group variance for GRPO
-        noise = torch.randn_like(score, device=device) * 0.1
-        
-        # Combine components
-        reward = catch_bonus + score_component + survival_bonus + penalty + noise
+        return reward, score
         
         # Clamp to reasonable bounds
         reward = torch.clamp(reward, -5.0, 10.0)
@@ -401,16 +427,24 @@ class Trainer:
     def _policy_loss(self, inputs: torch.Tensor, actions: torch.Tensor, reward: torch.Tensor):
         logits = self.brain(inputs)  # Shape: (batch_size, output_size)
         log_probs = F.log_softmax(logits, dim=-1)  # Convert logits to log probabilities
+        probs = F.softmax(logits, dim=-1)  # Get probabilities for entropy calculation
 
         # Extract the log probabilities of the actions taken in the batch
         batch_ix = torch.arange(actions.shape[0], device=self.device)
-        log_action_probs = log_probs[batch_ix, actions]  # Correct batch-wise indexing to get the log prob of element i in index i
+        log_action_probs = log_probs[batch_ix, actions]  # Correct batch-wise indexing
 
-        return -torch.mean(log_action_probs * reward)  # Scalar loss averaged over the batch
+        # Calculate policy loss
+        policy_loss = -torch.mean(log_action_probs * reward)
+        
+        # Add entropy bonus to encourage exploration
+        entropy = -torch.sum(probs * log_probs, dim=-1)  # Calculate entropy
+        entropy_bonus = 0.01 * torch.mean(entropy)  # Small entropy coefficient
+        
+        return policy_loss - entropy_bonus  # Subtract entropy bonus (we want to maximize entropy)
     
     def _train_epoch(self) -> Tuple[float, float]:
         """
-        Train for one epoch using GRPO (Group Reward Policy Optimization).
+        Train for one epoch using GRPO with cumulative returns.
         
         Returns:
             Tuple[float, float]: (average_reward, average_score) for the epoch
@@ -424,33 +458,61 @@ class Trainer:
         input_history, action_history, score_history, reward_history = self._create_trajector()
         f_input_history = input_history.reshape((num_steps, batch_size * num_inits, input_size))
         f_action_history = action_history.reshape((num_steps, batch_size * num_inits))
-        last_reward = torch.mean(reward_history[-1])
+        
+        # Calculate cumulative returns (sum of future rewards) for each timestep
+        returns = torch.zeros_like(reward_history)
+        cumulative_return = torch.zeros_like(reward_history[-1])
+        
+        # Work backwards to calculate returns
+        for t in reversed(range(num_steps)):
+            cumulative_return = reward_history[t] + 0.99 * cumulative_return  # discount factor 0.99
+            returns[t] = cumulative_return
 
         epsilon = 1e-7  # for safe division by the STD
-        group_normed_reward_history = (reward_history - torch.mean(reward_history, dim=-1, keepdim=True)) / (torch.std(reward_history, dim=-1, keepdim=True) + epsilon)  # THE GRPO LINE!!!
-        f_reward_history = group_normed_reward_history.reshape((num_steps, batch_size * num_inits))
+        # Group normalize returns for GRPO
+        group_normed_returns = (returns - torch.mean(returns, dim=-1, keepdim=True)) / (torch.std(returns, dim=-1, keepdim=True) + epsilon)
+        f_returns = group_normed_returns.reshape((num_steps, batch_size * num_inits))
+        
         total_loss = 0.0
         for t in range(num_steps):
-            # Compute the gradient at time step t
-            f_return = f_reward_history[-1]  # the reward is the reward at the FINAL time only
-
-            loss = self._policy_loss(f_input_history[t], f_action_history[t], f_return)
+            # Use the return at time t (not just final reward)
+            loss = self._policy_loss(f_input_history[t], f_action_history[t], f_returns[t])
             total_loss += loss
 
         # Compute gradients and update
         self.optimizer.zero_grad()
         total_loss.backward()
+        
+        # Gradient clipping to prevent exploding gradients
+        torch.nn.utils.clip_grad_norm_(self.brain.parameters(), max_norm=1.0)
+        
         self.optimizer.step()
-        return last_reward.item(), torch.mean(score_history[-1]).item()
+        
+        # Return average reward and score from the last timestep
+        avg_reward = torch.mean(reward_history[-1])
+        avg_score = torch.mean(score_history[-1])
+        
+        return avg_reward.item(), avg_score.item()
     
     def train(self) -> torch.Tensor:
         final_reward = np.zeros(self.config.total_epochs) 
         score = 0.0
+        best_score = float('-inf')
+        
         for epoch in tqdm(range(self.config.total_epochs)):
             final_reward[epoch], score = self._train_epoch()
-            print(f"{epoch=}, Reward:{final_reward[epoch]:.6f}, Score: {score:.3f}")
+            
+            # Step the learning rate scheduler
+            self.scheduler.step()
+            
+            # Track best performance and print selectively
+            if score > best_score:
+                best_score = score
+                print(f"epoch={epoch}, Reward:{final_reward[epoch]:.6f}, Score: {score:.3f} (NEW BEST!) LR: {self.optimizer.param_groups[0]['lr']:.2e}")
+            elif epoch % 50 == 0:  # Print every 50 epochs instead of every 10
+                print(f"epoch={epoch}, Reward:{final_reward[epoch]:.6f}, Score: {score:.3f}, LR: {self.optimizer.param_groups[0]['lr']:.2e}")
         
-        print(f"Reward:{final_reward[self.config.total_epochs - 1]:.6f}, Score: {score:.3f}")
+        print(f"Final - Reward:{final_reward[self.config.total_epochs - 1]:.6f}, Score: {score:.3f}, Best Score: {best_score:.3f}")
         return final_reward
     
     def save(self, name: str):

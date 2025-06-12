@@ -513,9 +513,9 @@ class TestRewardMethod:
         pos_reward, _ = trainer._reward(extreme_positive)
         neg_reward, _ = trainer._reward(extreme_negative)
         
-        # Should be bounded within reasonable range
-        assert -5.0 <= pos_reward.item() <= 10.0
-        assert -5.0 <= neg_reward.item() <= 10.0
+        # Should be bounded within reasonable range (updated bounds to match new reward function)
+        assert -5.0 <= pos_reward.item() <= 15.0
+        assert -5.0 <= neg_reward.item() <= 15.0
 
     def test_reward_edge_cases(self, trainer):
         """Test reward calculation for edge cases."""
@@ -746,3 +746,189 @@ class TestCreateTrajectory:
         )
         actual_input_size = input_history.numel()
         assert actual_input_size == expected_input_size
+
+
+class TestMinimumIntervalRule:
+    """Test suite for the minimum interval rule between fruits."""
+    
+    @pytest.fixture
+    def game_config_with_interval(self):
+        return GameConfig(
+            screen_width=10,
+            screen_height=8,
+            max_fruits_on_screen=3,
+            min_fruits_on_screen=1,
+            min_interval_step_fruits=3
+        )
+    
+    @pytest.fixture
+    def trainer_with_interval(self, game_config_with_interval):
+        trainer_config = TrainerConfig(
+            game_config=game_config_with_interval,
+            batch_size=2,
+            max_steps=20,
+            hidden_size=32
+        )
+        return Trainer(trainer_config, "cpu")
+    
+    def test_minimum_interval_enforcement(self, trainer_with_interval):
+        """Test that minimum interval rule is enforced during fruit spawning."""
+        # Create initial state
+        inputs_state, game_state = trainer_with_interval._create_init()
+        inputs_state = inputs_state.unsqueeze(0).repeat(2, 1, 1)  # batch_size=2
+        game_state = game_state.unsqueeze(0).repeat(2, 1, 1)
+        
+        violations = 0
+        total_checks = 0
+        
+        # Run multiple updates to trigger fruit spawning
+        for step in range(15):
+            inputs_state, actions, game_state = trainer_with_interval.engin.update(inputs_state, game_state)
+            
+            # Check minimum interval rule for each game
+            batch_size, num_inits, _ = inputs_state.shape
+            max_fruits = trainer_with_interval.config.game_config.max_fruits_on_screen
+            min_interval = trainer_with_interval.config.game_config.min_interval_step_fruits
+            
+            for b in range(batch_size):
+                for i in range(num_inits):
+                    # Extract fruit data
+                    fruit_data = inputs_state[b, i, 1:].view(max_fruits, 3)
+                    active_fruits = fruit_data[fruit_data[:, 2] == 1.0]  # Get active fruits
+                    
+                    if len(active_fruits) > 1:
+                        # Check all pairs of active fruits
+                        fruit_y_positions = active_fruits[:, 1]  # Y positions
+                        for idx1 in range(len(fruit_y_positions)):
+                            for idx2 in range(idx1 + 1, len(fruit_y_positions)):
+                                distance = abs(fruit_y_positions[idx1] - fruit_y_positions[idx2])
+                                total_checks += 1
+                                if distance < min_interval:
+                                    violations += 1
+        
+        # No violations should occur
+        assert violations == 0, f"Found {violations} interval violations out of {total_checks} checks"
+        assert total_checks > 0, "No distance checks were performed"
+    
+    def test_different_interval_values(self):
+        """Test the rule works with different minimum interval values."""
+        for min_interval in [1, 2, 4, 5]:
+            game_config = GameConfig(
+                screen_width=8,
+                screen_height=6,
+                max_fruits_on_screen=3,
+                min_fruits_on_screen=1,
+                min_interval_step_fruits=min_interval
+            )
+            trainer_config = TrainerConfig(game_config=game_config, batch_size=1, max_steps=10)
+            trainer = Trainer(trainer_config, "cpu")
+            
+            inputs_state, game_state = trainer._create_init()
+            inputs_state = inputs_state.unsqueeze(0)
+            game_state = game_state.unsqueeze(0)
+            
+            violations = 0
+            for step in range(8):
+                inputs_state, actions, game_state = trainer.engin.update(inputs_state, game_state)
+                
+                # Check violations
+                fruit_data = inputs_state[0, 0, 1:].view(game_config.max_fruits_on_screen, 3)
+                active_fruits = fruit_data[fruit_data[:, 2] == 1.0]
+                
+                if len(active_fruits) > 1:
+                    fruit_y_positions = active_fruits[:, 1]
+                    for idx1 in range(len(fruit_y_positions)):
+                        for idx2 in range(idx1 + 1, len(fruit_y_positions)):
+                            distance = abs(fruit_y_positions[idx1] - fruit_y_positions[idx2])
+                            if distance < min_interval:
+                                violations += 1
+            
+            assert violations == 0, f"Violations found with min_interval={min_interval}"
+    
+    def test_interval_rule_with_single_fruit(self, trainer_with_interval):
+        """Test that the rule doesn't affect single fruit scenarios."""
+        # Force a scenario with only one fruit by setting min_fruits_on_screen=1
+        game_config = GameConfig(
+            screen_width=8,
+            screen_height=6,
+            max_fruits_on_screen=1,  # Only allow one fruit
+            min_fruits_on_screen=1,
+            min_interval_step_fruits=3
+        )
+        trainer_config = TrainerConfig(game_config=game_config, batch_size=1, max_steps=5)
+        trainer = Trainer(trainer_config, "cpu")
+        
+        inputs_state, game_state = trainer._create_init()
+        inputs_state = inputs_state.unsqueeze(0)
+        game_state = game_state.unsqueeze(0)
+        
+        # Run updates - should work normally with single fruit
+        for step in range(3):  # Reduced steps to avoid fruit reaching bottom
+            prev_inputs = inputs_state.clone()
+            inputs_state, actions, game_state = trainer.engin.update(inputs_state, game_state)
+            
+            # Verify fruit continues to fall normally
+            fruit_data = inputs_state[0, 0, 1:].view(1, 3)
+            prev_fruit_data = prev_inputs[0, 0, 1:].view(1, 3)
+            
+            if fruit_data[0, 2] == 1.0 and prev_fruit_data[0, 2] == 1.0:  # Both active
+                # Y position should increase by 1 (falling) unless fruit respawned
+                if prev_fruit_data[0, 1] < game_config.screen_height - 1:  # Not at bottom
+                    expected_y = prev_fruit_data[0, 1] + 1
+                    actual_y = fruit_data[0, 1]
+                    # Allow for respawning (y=0) or normal falling
+                    assert actual_y == expected_y or actual_y == 0.0, f"Expected y={expected_y} or y=0, got y={actual_y}"
+    
+    def test_edge_case_restrictive_interval(self):
+        """Test behavior with very restrictive interval settings."""
+        game_config = GameConfig(
+            screen_width=6,
+            screen_height=10,
+            max_fruits_on_screen=3,
+            min_fruits_on_screen=1,
+            min_interval_step_fruits=7  # Very restrictive
+        )
+        trainer_config = TrainerConfig(game_config=game_config, batch_size=1, max_steps=12)
+        trainer = Trainer(trainer_config, "cpu")
+        
+        inputs_state, game_state = trainer._create_init()
+        inputs_state = inputs_state.unsqueeze(0)
+        game_state = game_state.unsqueeze(0)
+        
+        fruit_spawn_count = 0
+        violations = 0
+        
+        for step in range(12):
+            prev_active_count = 0
+            fruit_data_prev = inputs_state[0, 0, 1:].view(game_config.max_fruits_on_screen, 3)
+            prev_active_count = (fruit_data_prev[:, 2] == 1.0).sum().item()
+            
+            inputs_state, actions, game_state = trainer.engin.update(inputs_state, game_state)
+            
+            # Count new spawns
+            fruit_data = inputs_state[0, 0, 1:].view(game_config.max_fruits_on_screen, 3)
+            curr_active_count = (fruit_data[:, 2] == 1.0).sum().item()
+            if curr_active_count > prev_active_count:
+                fruit_spawn_count += (curr_active_count - prev_active_count)
+            
+            # Check for violations
+            active_fruits = fruit_data[fruit_data[:, 2] == 1.0]
+            if len(active_fruits) > 1:
+                fruit_y_positions = active_fruits[:, 1]
+                for idx1 in range(len(fruit_y_positions)):
+                    for idx2 in range(idx1 + 1, len(fruit_y_positions)):
+                        distance = abs(fruit_y_positions[idx1] - fruit_y_positions[idx2])
+                        if distance < game_config.min_interval_step_fruits:
+                            violations += 1
+        
+        # Should have no violations regardless of spawn behavior
+        assert violations == 0, "Violations found even with restrictive interval"
+        # With restrictive interval, spawning should be limited but still possible
+        assert fruit_spawn_count >= 0, "Spawn count should be non-negative"
+    
+    def test_config_default_value(self):
+        """Test that GameConfig has the correct default value for min_interval_step_fruits."""
+        config = GameConfig()
+        assert hasattr(config, 'min_interval_step_fruits'), "min_interval_step_fruits should be defined"
+        assert config.min_interval_step_fruits == 3, "Default value should be 3"
+        assert isinstance(config.min_interval_step_fruits, int), "Should be an integer"

@@ -9,11 +9,16 @@ def main():
     # Define the game configuration
     game_config = GameConfig()
 
-    # Define the trainer configuration
-    trainer_config = TrainerConfig(game_config=game_config, 
-                                   total_epochs=10000, 
-                                   lr_rate=2e-4,
-                                   compile=True)
+    # Define the trainer configuration with optimized hyperparameters
+    trainer_config = TrainerConfig(
+        game_config=game_config, 
+        total_epochs=2000,  # Shorter training to see faster results
+        lr_rate=5e-5,  # Reduced learning rate for stable training
+        batch_size=16,  # Good batch size for stability
+        max_steps=150,  # Optimal episode length
+        hidden_size=512,  # Larger network for better learning capacity
+        compile=True
+    )
 
     # Create a trainer instance
     trainer = Trainer(trainer_config, device)
