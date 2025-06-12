@@ -5,12 +5,13 @@ from grpo_fruits_catcher import Trainer, GameConfig, TrainerConfig
 device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
 
 def main():
+    torch.set_float32_matmul_precision('high')
     # Define the game configuration
     game_config = GameConfig()
 
     # Define the trainer configuration
     trainer_config = TrainerConfig(game_config=game_config, 
-                                   total_epochs=600, 
+                                   total_epochs=10000, 
                                    lr_rate=2e-4,
                                    compile=True)
 

@@ -445,10 +445,12 @@ class Trainer:
     
     def train(self) -> torch.Tensor:
         final_reward = np.zeros(self.config.total_epochs) 
+        score = 0.0
         for epoch in tqdm(range(self.config.total_epochs)):
             final_reward[epoch], score = self._train_epoch()
             print(f"{epoch=}, Reward:{final_reward[epoch]:.6f}, Score: {score:.3f}")
         
+        print(f"Reward:{final_reward[self.config.total_epochs - 1]:.6f}, Score: {score:.3f}")
         return final_reward
     
     def save(self, name: str):
