@@ -556,26 +556,26 @@ class GameInference:
         overlay.fill((0, 50, 0))  # Dark green overlay
         self.screen.blit(overlay, (0, 0))
         
-        # Victory title - use simpler unicode symbols that work without emoji fonts
-        title_text_simple = "★ AI VICTORY! ★"
-        title_surface = self.font_large.render(title_text_simple, True, (255, 215, 0))  # Gold color
+        # Victory title - use the same emoji rendering approach as the UI
+        title_text = "🏆 AI VICTORY! 🏆"
+        title_surface = self.font_large.render(title_text, True, (255, 215, 0))  # Gold color
         title_rect = title_surface.get_rect(center=(self.screen.get_width()//2, self.screen.get_height()//3))
         
         # Add glow effect to title
         for offset in [(2, 2), (-2, -2), (2, -2), (-2, 2)]:
-            glow_surface = self.font_large.render(title_text_simple, True, (255, 255, 255))
+            glow_surface = self.font_large.render(title_text, True, (255, 255, 255))
             glow_rect = glow_surface.get_rect(center=(title_rect.centerx + offset[0], title_rect.centery + offset[1]))
             self.screen.blit(glow_surface, glow_rect)
         
         self.screen.blit(title_surface, title_rect)
         
-        # Victory stats - use simpler unicode symbols
+        # Victory stats - use the same emoji rendering approach as the UI
         stats_y = self.screen.get_height()//2
         stats = [
-            f"► Final Score: {score:.1f}",
-            f"► Steps Taken: {steps}",
-            f"► AI Performance: EXCELLENT!",
-            f"► Target Reached: {self.game_config.win_ended_game_score}"
+            f"🎯 Final Score: {score:.1f}",
+            f"⏱️ Steps Taken: {steps}",
+            f"🤖 AI Performance: EXCELLENT!",
+            f"🌟 Target Reached: {self.game_config.win_ended_game_score}"
         ]
         
         for i, stat in enumerate(stats):
@@ -603,26 +603,26 @@ class GameInference:
         overlay.fill((50, 0, 0))  # Dark red overlay
         self.screen.blit(overlay, (0, 0))
         
-        # Game over title - use simpler unicode symbols that work without emoji fonts
-        title_text_simple = "✗ GAME OVER ✗"
-        title_surface = self.font_large.render(title_text_simple, True, (255, 100, 100))  # Red color
+        # Game over title - use the same emoji rendering approach as the UI
+        title_text = "💥 GAME OVER 💥"
+        title_surface = self.font_large.render(title_text, True, (255, 100, 100))  # Red color
         title_rect = title_surface.get_rect(center=(self.screen.get_width()//2, self.screen.get_height()//3))
         
         # Add glow effect to title
         for offset in [(2, 2), (-2, -2), (2, -2), (-2, 2)]:
-            glow_surface = self.font_large.render(title_text_simple, True, (255, 255, 255))
+            glow_surface = self.font_large.render(title_text, True, (255, 255, 255))
             glow_rect = glow_surface.get_rect(center=(title_rect.centerx + offset[0], title_rect.centery + offset[1]))
             self.screen.blit(glow_surface, glow_rect)
         
         self.screen.blit(title_surface, title_rect)
         
-        # Failure stats - use simpler unicode symbols
+        # Failure stats - use the same emoji rendering approach as the UI
         stats_y = self.screen.get_height()//2
         stats = [
-            f"► Final Score: {score:.1f}",
-            f"► Steps Taken: {steps}",
-            f"► AI Performance: NEEDS IMPROVEMENT",
-            f"► Failure Threshold: {self.game_config.fail_ended_game_score}"
+            f"🎯 Final Score: {score:.1f}",
+            f"⏱️ Steps Taken: {steps}",
+            f"🤖 AI Performance: NEEDS IMPROVEMENT",
+            f"💀 Failure Threshold: {self.game_config.fail_ended_game_score}"
         ]
         
         for i, stat in enumerate(stats):
