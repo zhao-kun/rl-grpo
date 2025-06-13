@@ -12,16 +12,17 @@ from tqdm import tqdm
 class GameConfig:
     """Configuration for the fruit catching game"""
     screen_width: int = 20
-    screen_height: int = 11
+    screen_height: int = 15
     sprite_width: int = 3
     sprite_height: int = 1
     max_fruits_on_screen: int = 3
     min_fruits_on_screen: int = 1
-    min_interval_step_fruits: int = 3
-    view_height_multiplier: float = 2.0  #  Use to scale the height for view cordinate to get better visual effect
-    view_width_multiplier: float = 2.0  #  Use to scale the width for view cordinate to get better visual effect
-    refresh_timer: int = 100  # When refresh_timer reach, the game game engine will update once, in millisecond
-    ended_game_score: int = -200 # Game ends when score reaches this value
+    min_interval_step_fruits: int = 4
+    view_height_multiplier: float = 50.0  #  Use to scale the height for view cordinate to get better visual effect
+    view_width_multiplier: float = 50.0  #  Use to scale the width for view cordinate to get better visual effect
+    refresh_timer: int = 150  # When refresh_timer reach, the game game engine will update once, in millisecond
+    fail_ended_game_score: int = -30 # Game ends when score reaches this value
+    win_ended_game_score: int = 30
 
     def get_inputsize(self):
         # Sprite position (1) + fruits data (max_fruits * 3 dimensions)
@@ -111,11 +112,57 @@ class GameBrain(nn.Module):
         return action, log_prob
     
     @classmethod
-    def from_pretrained(cls, path: str, config: TrainerConfig = TrainerConfig()) -> 'GameBrain':
-        model = cls(config)
-        state_dict = torch.load(path)
-        model.load_state_dict(state_dict=state_dict)
-        return model
+    def from_pretrained(cls, path: str, device: str = 'cpu') -> Tuple['GameBrain', 'GameConfig', 'TrainerConfig']:
+        """
+        Load a pretrained GameBrain model with its configurations.
+        
+        Args:
+            path: Path to the saved model file
+            device: Device to load the model on
+            
+        Returns:
+            Tuple of (GameBrain instance, GameConfig, TrainerConfig)
+        """
+        checkpoint = torch.load(path, map_location=device)
+        
+        # Reconstruct GameConfig from saved dictionary
+        game_config_dict = checkpoint['game_config']
+        game_config = GameConfig(
+            screen_width=game_config_dict['screen_width'],
+            screen_height=game_config_dict['screen_height'],
+            sprite_width=game_config_dict['sprite_width'],
+            sprite_height=game_config_dict['sprite_height'],
+            max_fruits_on_screen=game_config_dict['max_fruits_on_screen'],
+            min_fruits_on_screen=game_config_dict['min_fruits_on_screen'],
+            min_interval_step_fruits=game_config_dict['min_interval_step_fruits'],
+            view_height_multiplier=game_config_dict['view_height_multiplier'],
+            view_width_multiplier=game_config_dict['view_width_multiplier'],
+            refresh_timer=game_config_dict['refresh_timer'],
+            ended_game_score=game_config_dict['ended_game_score']
+        )
+        
+        # Reconstruct TrainerConfig from saved dictionary
+        trainer_config_dict = checkpoint['trainer_config']
+        trainer_config = TrainerConfig(
+            hidden_size=trainer_config_dict['hidden_size'],
+            batch_size=trainer_config_dict['batch_size'],
+            total_epochs=trainer_config_dict['total_epochs'],
+            max_steps=trainer_config_dict['max_steps'],
+            game_config=game_config,
+            lr_rate=trainer_config_dict['lr_rate'],
+            compile=trainer_config_dict['compile']
+        )
+        
+        # Create and load the model
+        model = cls(trainer_config, device)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        model = model.eval().to(device=device)  # Set to evaluation mode
+        
+        print(f"Model loaded from {path}")
+        print(f"Game config: {game_config.screen_width}x{game_config.screen_height}, max_fruits: {game_config.max_fruits_on_screen}")
+        print(f"Model config: hidden_size={trainer_config.hidden_size}")
+        
+        return model, game_config, trainer_config
 
 
 class GameEngine:
@@ -535,9 +582,40 @@ class Trainer:
     
     def save(self, name: str):
         """
-        Save the trained model to the specified path.
+        Save the trained model with configs to the specified path.
         Args:
-            path (str): Path to save the model
+            name (str): Base name for the saved model file
         """
         path = f"{name}-{self.config.total_epochs:06d}.pth"
-        torch.save(self.brain.state_dict(), path)
+        
+        # Convert configs to dictionaries for JSON serialization
+        game_config_dict = {
+            'screen_width': self.config.game_config.screen_width,
+            'screen_height': self.config.game_config.screen_height,
+            'sprite_width': self.config.game_config.sprite_width,
+            'sprite_height': self.config.game_config.sprite_height,
+            'max_fruits_on_screen': self.config.game_config.max_fruits_on_screen,
+            'min_fruits_on_screen': self.config.game_config.min_fruits_on_screen,
+            'min_interval_step_fruits': self.config.game_config.min_interval_step_fruits,
+            'view_height_multiplier': self.config.game_config.view_height_multiplier,
+            'view_width_multiplier': self.config.game_config.view_width_multiplier,
+            'refresh_timer': self.config.game_config.refresh_timer,
+            'ended_game_score': self.config.game_config.ended_game_score
+        }
+        
+        trainer_config_dict = {
+            'hidden_size': self.config.hidden_size,
+            'batch_size': self.config.batch_size,
+            'total_epochs': self.config.total_epochs,
+            'max_steps': self.config.max_steps,
+            'lr_rate': self.config.lr_rate,
+            'compile': self.config.compile
+        }
+        
+        torch.save({
+            'model_state_dict': self.brain.state_dict(),
+            'game_config': game_config_dict,
+            'trainer_config': trainer_config_dict,
+            'model_class': 'GameBrain'
+        }, path)
+        print(f"Model saved to {path}")

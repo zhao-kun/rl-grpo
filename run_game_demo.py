@@ -12,28 +12,7 @@ def main():
     print("=== AI Fruits Catcher Game Demo ===")
     
     # Use the existing trained model
-    model_path = "grpo_fruits_catcher-002000.pth"
-    
-    # Game configuration optimized for visual demonstration
-    game_config = GameConfig(
-        screen_width=20,          # Game grid width
-        screen_height=11,         # Game grid height
-        sprite_width=3,           # Player sprite width
-        sprite_height=1,          # Player sprite height
-        max_fruits_on_screen=3,   # Maximum fruits simultaneously
-        min_fruits_on_screen=1,   # Minimum fruits to maintain
-        min_interval_step_fruits=3, # Minimum spacing between fruits
-        view_height_multiplier=50.0,  # Visual scaling factor
-        view_width_multiplier=50.0,   # Visual scaling factor
-        refresh_timer=150,        # Game update interval (milliseconds)
-        ended_game_score=-30      # Game over score threshold
-    )
-    
-    trainer_config = TrainerConfig(
-        hidden_size=512,
-        game_config=game_config,
-        compile=False  # Disable compilation for inference
-    )
+    model_path = "grpo_fruits_catcher-000001.pth"
     
     # Determine computation device
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -41,14 +20,14 @@ def main():
     
     try:
         # Create and run the game
-        game = GameInference(model_path, trainer_config, device)
+        game = GameInference.from_pretrained(model_path, device)
         
         print("\n🎮 Game Instructions:")
         print("• Red circles = Falling fruits (catch them!)")
         print("• Green rectangle = AI-controlled sprite")
         print("• Score increases when catching fruits")
         print("• Score decreases when missing fruits")
-        print("• Game ends when score reaches", game_config.ended_game_score)
+        print("• Game ends when score reaches", game.game_config.ended_game_score)
         print("• Press ESC to quit anytime")
         print("\nStarting game in 3 seconds...")
         

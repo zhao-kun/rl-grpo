@@ -7,24 +7,51 @@ from grpo_fruits_catcher import GameConfig, Trainer, TrainerConfig, GameBrain, G
 
 
 class GameInference:
-    device: str ='cpu'
+    device: str = 'cpu'
     game_config: GameConfig = None
     trainer_config: TrainerConfig = None
-    gb : GameBrain = None
+    gb: GameBrain = None
     engine: GameEngine = None
     
-    def __init__(self, model_path: str, trainer_config: TrainerConfig = None, device: str = 'cpu'):
+    def __init__(self, model_path: str, device: str = 'cpu'):
+        """
+        Initialize GameInference with automatic config loading from saved model.
+        
+        Args:
+            model_path: Path to the saved model file
+            device: Device to run inference on ('cpu' or 'cuda')
+        """
         assert model_path is not None, "Model path must be provided"
-        assert trainer_config is not None, "TrainerConfig must be provided"
         self.device = device
         self.model_path = model_path
-        self.trainer_config = trainer_config
-        self.game_config = trainer_config.game_config
-        self.gb = GameBrain.from_pretrained(model_path, trainer_config).to(device)
-        self.engine = GameEngine(trainer_config, self.gb)
+        
+        # Load model and configs from the saved checkpoint
+        self.gb, self.game_config, self.trainer_config = GameBrain.from_pretrained(model_path, device)
+        self.engine = GameEngine(self.trainer_config, self.gb)
+
+        if self.game_config.view_height_multiplier < 50.0:
+            self.game_config.view_height_multiplier = 50.0
+        if self.game_config.view_width_multiplier < 50.0:
+            self.game_config.view_width_multiplier = 50.0
+        if self.game_config.refresh_timer < 100:
+            self.game_config.refresh_timer = 100
         
         # Initialize score tracking for effects
         self.previous_score = 0
+    
+    @classmethod
+    def from_pretrained(cls, model_path: str, device: str = 'cpu') -> 'GameInference':
+        """
+        Create GameInference instance from a pretrained model.
+        
+        Args:
+            model_path: Path to the saved model file
+            device: Device to run inference on
+            
+        Returns:
+            GameInference instance with loaded model and configs
+        """
+        return cls(model_path, device)
     
     
     def _init_pygame(self):

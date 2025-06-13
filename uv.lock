@@ -769,7 +769,7 @@ wheels = [
 ]
 
 [[package]]
-name = "simple-gpro"
+name = "simple-grpo"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
