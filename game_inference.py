@@ -59,7 +59,29 @@ class GameInference:
         self.font_large = pygame.font.Font(None, 48)
         self.font_medium = pygame.font.Font(None, 36)
         self.font_small = pygame.font.Font(None, 24)
-        self.font_emoji = pygame.font.Font(None, 64)  # For fruit emojis
+        # Try to use a color emoji font for fruit emojis
+        import os
+        emoji_font_path = None
+        # Common locations for Noto Color Emoji on Linux
+        noto_paths = [
+            "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
+            "/usr/share/fonts/NotoColorEmoji.ttf",
+            "/usr/local/share/fonts/NotoColorEmoji.ttf"
+        ]
+        for path in noto_paths:
+            if os.path.exists(path):
+                emoji_font_path = path
+                break
+        if emoji_font_path:
+            self.font_emoji = pygame.font.Font(emoji_font_path, 24)
+            self.font_emoji_ui = pygame.font.Font(emoji_font_path, 8)  # Even smaller font for UI emojis
+            print(f"[Debug] Using emoji font: {emoji_font_path}, UI size: 8px")
+        else:
+            # Fallback to default font (may not support emoji)
+            self.font_emoji = pygame.font.Font(None, 24)
+            self.font_emoji_ui = pygame.font.Font(None, 8)  # Even smaller font for UI emojis
+            print("[Warning] Noto Color Emoji font not found. Fruit emojis may not display correctly.")
+            print("[Debug] Using default font for UI emojis, size: 8px")
         
         # Particle effects system
         self.particles = []
@@ -167,16 +189,20 @@ class GameInference:
                                  (center_x + shadow_offset, center_y + shadow_offset), 
                                  int(min(scale_x, scale_y) // 2))
                 
-                # Draw fruit glow effect
-                glow_radius = int(min(scale_x, scale_y) // 1.5)
+                # Draw fruit glow effect (reduced size)
+                glow_radius = int(min(scale_x, scale_y) // 2.5)
                 for r in range(glow_radius, 0, -2):
                     alpha = int(30 * (1 - r / glow_radius))
                     glow_color = (*fruit_type['color'], alpha)
                     pygame.draw.circle(self.screen, fruit_type['color'], 
                                      (center_x, center_y), r)
                 
-                # Draw fruit emoji (larger and more prominent)
+                # Draw fruit emoji (scaled down)
                 emoji_surface = self.font_emoji.render(fruit_type['emoji'], True, self.WHITE)
+                # Scale down the emoji surface by 1.5 factor
+                original_size = emoji_surface.get_size()
+                new_size = (int(original_size[0] / 1.5), int(original_size[1] / 1.5))
+                emoji_surface = pygame.transform.scale(emoji_surface, new_size)
                 emoji_rect = emoji_surface.get_rect(center=(center_x, center_y))
                 self.screen.blit(emoji_surface, emoji_rect)
                 
@@ -231,40 +257,112 @@ class GameInference:
         
         # Create pulsing score text
         pulse_font = pygame.font.Font(None, 48 + self.score_pulse)
-        score_text = pulse_font.render(f"🏆 Score: {score:.1f}", True, score_color)
-        self.screen.blit(score_text, (20, 20))
+        # Fix emoji display for score - use smaller emoji and scale it down further
+        trophy_emoji_raw = self.font_emoji_ui.render("🏆", True, score_color)
+        # Scale it down even more
+        trophy_size = trophy_emoji_raw.get_size()
+        new_trophy_size = (int(trophy_size[0] * 0.3), int(trophy_size[1] * 0.3))
+        trophy_emoji = pygame.transform.scale(trophy_emoji_raw, new_trophy_size)
+        score_only_text = pulse_font.render(f"Score: {score:.1f}", True, score_color)
+        
+        # Align trophy emoji vertically with score text
+        text_center_y = 20 + score_only_text.get_height() // 2
+        emoji_y = text_center_y - trophy_emoji.get_height() // 2
+        self.screen.blit(trophy_emoji, (20, emoji_y))
+        self.screen.blit(score_only_text, (20 + trophy_emoji.get_width() + 8, 20))
         
         # Game stats with icons
         stats_y = 80
-        step_text = self.font_medium.render(f"⏱️ Steps: {step_count}", True, self.WHITE)
-        fruits_text = self.font_medium.render(f"🍎 Active: {active_fruits}", True, self.WHITE)
-        bottom_text = self.font_medium.render(f"💥 Missed: {fruits_reached_bottom}", True, self.RED if fruits_reached_bottom > 0 else self.WHITE)
+        line_height = 35  # Fixed line height for consistent spacing
         
-        self.screen.blit(step_text, (20, stats_y))
-        self.screen.blit(fruits_text, (20, stats_y + 35))
-        self.screen.blit(bottom_text, (20, stats_y + 70))
+        # Fix emoji display for stats - use smaller emojis, scale them down, and better positioning
+        timer_emoji_raw = self.font_emoji_ui.render("⏱️", True, self.WHITE)
+        timer_size = timer_emoji_raw.get_size()
+        timer_emoji = pygame.transform.scale(timer_emoji_raw, (int(timer_size[0] * 0.3), int(timer_size[1] * 0.3)))
+        step_only_text = self.font_medium.render(f"Steps: {step_count}", True, self.WHITE)
+        # Align emoji vertically with text center
+        text_center_y = stats_y + step_only_text.get_height() // 2
+        emoji_y = text_center_y - timer_emoji.get_height() // 2
+        self.screen.blit(timer_emoji, (20, emoji_y))
+        self.screen.blit(step_only_text, (20 + timer_emoji.get_width() + 8, stats_y))
         
-        # Action indicator with animation
+        apple_emoji_raw = self.font_emoji_ui.render("🍎", True, self.WHITE)
+        apple_size = apple_emoji_raw.get_size()
+        apple_emoji = pygame.transform.scale(apple_emoji_raw, (int(apple_size[0] * 0.3), int(apple_size[1] * 0.3)))
+        fruits_only_text = self.font_medium.render(f"Active: {active_fruits}", True, self.WHITE)
+        # Align emoji vertically with text center
+        text_center_y = stats_y + line_height + fruits_only_text.get_height() // 2
+        emoji_y = text_center_y - apple_emoji.get_height() // 2
+        self.screen.blit(apple_emoji, (20, emoji_y))
+        self.screen.blit(fruits_only_text, (20 + apple_emoji.get_width() + 8, stats_y + line_height))
+        
+        missed_color = self.RED if fruits_reached_bottom > 0 else self.WHITE
+        boom_emoji_raw = self.font_emoji_ui.render("💥", True, missed_color)
+        boom_size = boom_emoji_raw.get_size()
+        boom_emoji = pygame.transform.scale(boom_emoji_raw, (int(boom_size[0] * 0.3), int(boom_size[1] * 0.3)))
+        bottom_only_text = self.font_medium.render(f"Missed: {fruits_reached_bottom}", True, missed_color)
+        # Align emoji vertically with text center
+        text_center_y = stats_y + line_height * 2 + bottom_only_text.get_height() // 2
+        emoji_y = text_center_y - boom_emoji.get_height() // 2
+        self.screen.blit(boom_emoji, (20, emoji_y))
+        self.screen.blit(bottom_only_text, (20 + boom_emoji.get_width() + 8, stats_y + line_height * 2))
+        
+        # Action indicator with animation - FIXED POSITION
         if last_action is not None:
             action_names = ["⬅️ LEFT", "⏸️ STAY", "➡️ RIGHT"]
+            action_emojis = ["⬅️", "⏸️", "➡️"]
+            action_texts = ["LEFT", "STAY", "RIGHT"]
             action_colors = [(255, 100, 100), (100, 255, 100), (100, 100, 255)]
             
-            action_text = self.font_medium.render(f"🎮 {action_names[last_action]}", True, action_colors[last_action])
-            action_rect = action_text.get_rect()
-            action_rect.topright = (self.screen.get_width() - 20, 20)
+            # Render gamepad emoji and action separately with smaller size and scaling
+            gamepad_emoji_raw = self.font_emoji_ui.render("🎮", True, action_colors[last_action])
+            gamepad_size = gamepad_emoji_raw.get_size()
+            gamepad_emoji = pygame.transform.scale(gamepad_emoji_raw, (int(gamepad_size[0] * 0.3), int(gamepad_size[1] * 0.3)))
             
-            # Add action background
-            bg_rect = action_rect.inflate(10, 5)
+            action_emoji_raw = self.font_emoji_ui.render(action_emojis[last_action], True, action_colors[last_action])
+            action_emoji_size = action_emoji_raw.get_size()
+            action_emoji = pygame.transform.scale(action_emoji_raw, (int(action_emoji_size[0] * 0.3), int(action_emoji_size[1] * 0.3)))
+            
+            action_text_part = self.font_medium.render(action_texts[last_action], True, action_colors[last_action])
+            
+            # FIXED POSITION - no more moving based on text length
+            fixed_width = 120  # Fixed width for the action indicator
+            start_x = self.screen.get_width() - 100 - fixed_width
+            
+            # Add action background with fixed size
+            bg_height = max(gamepad_emoji.get_height(), action_text_part.get_height()) + 8
+            bg_rect = pygame.Rect(start_x - 5, 18, fixed_width + 70, bg_height)
             pygame.draw.rect(self.screen, (0, 0, 0, 128), bg_rect)
             pygame.draw.rect(self.screen, action_colors[last_action], bg_rect, 2)
             
-            self.screen.blit(action_text, action_rect)
+            # Calculate vertical center for alignment
+            bg_center_y = 18 + bg_height // 2
+            
+            # Blit gamepad emoji at fixed position
+            gamepad_y = bg_center_y - gamepad_emoji.get_height() // 2
+            self.screen.blit(gamepad_emoji, (start_x + 5, gamepad_y))
+            
+            # Blit action emoji at fixed position with more spacing
+            action_emoji_y = bg_center_y - action_emoji.get_height() // 2
+            self.screen.blit(action_emoji, (start_x + 5 + 45, action_emoji_y))  # More spacing
+            
+            # Blit text at fixed position with more spacing
+            text_y = bg_center_y - action_text_part.get_height() // 2
+            self.screen.blit(action_text_part, (start_x + 5 + 45 + 45, text_y))  # More spacing for text
         
         # AI status indicator
-        ai_text = self.font_small.render("🤖 AI PLAYING - Press ESC to quit", True, self.CYAN)
-        ai_rect = ai_text.get_rect()
-        ai_rect.bottomleft = (20, self.screen.get_height() - 10)
-        self.screen.blit(ai_text, ai_rect)
+        robot_emoji_raw = self.font_emoji_ui.render("🤖", True, self.CYAN)
+        robot_size = robot_emoji_raw.get_size()
+        robot_emoji = pygame.transform.scale(robot_emoji_raw, (int(robot_size[0] * 0.3), int(robot_size[1] * 0.3)))
+        ai_text_part = self.font_small.render("AI PLAYING - Press ESC to quit", True, self.CYAN)
+        
+        # Position at bottom with proper vertical alignment
+        bottom_y = self.screen.get_height() - 15
+        text_y = bottom_y - ai_text_part.get_height()
+        emoji_y = text_y + ai_text_part.get_height() // 2 - robot_emoji.get_height() // 2
+        
+        self.screen.blit(robot_emoji, (20, emoji_y))
+        self.screen.blit(ai_text_part, (20 + robot_emoji.get_width() + 5, text_y))
         
         # Performance indicator
         fps = int(self.clock.get_fps())
