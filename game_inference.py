@@ -42,6 +42,7 @@ class GameInference:
         # Game ending state tracking
         self.game_ended = False
         self.game_result = None  # 'win', 'lose', or None
+        self.game_end_time = None  # Track when game ended for auto-exit
     
     @classmethod
     def from_pretrained(cls, model_path: str, device: str = 'cpu') -> 'GameInference':
@@ -484,9 +485,13 @@ class GameInference:
                 elif event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
                         running = False
+                    elif self.game_ended:
+                        # Any key press after game ends will quit
+                        print("Game ended by user input")
+                        running = False
             
-            # Update game state at specified intervals
-            if current_time - last_update_time >= self.game_config.refresh_timer:
+            # Update game state at specified intervals (only if game hasn't ended)
+            if current_time - last_update_time >= self.game_config.refresh_timer and not self.game_ended:
                 # Update game using AI brain
                 new_inputs_state, actions, new_game_state = self.engine.update(inputs_state, game_state)
                 inputs_state = new_inputs_state
@@ -498,17 +503,18 @@ class GameInference:
                 current_score = game_state[0, 0, 0].item()
                 
                 # Check win/lose conditions
-                if not self.game_ended:
-                    if current_score >= self.game_config.win_ended_game_score:
-                        print(f"🏆 AI WINS! Final Score: {current_score:.1f}")
-                        self.game_ended = True
-                        self.game_result = 'win'
-                    elif current_score <= self.game_config.fail_ended_game_score:
-                        print(f"💥 AI LOSES! Final Score: {current_score:.1f}")
-                        self.game_ended = True
-                        self.game_result = 'lose'
+                if current_score >= self.game_config.win_ended_game_score:
+                    print(f"🏆 AI WINS! Final Score: {current_score:.1f}")
+                    self.game_ended = True
+                    self.game_result = 'win'
+                    self.game_end_time = current_time
+                elif current_score <= self.game_config.fail_ended_game_score:
+                    print(f"💥 AI LOSES! Final Score: {current_score:.1f}")
+                    self.game_ended = True
+                    self.game_result = 'lose'
+                    self.game_end_time = current_time
                 
-                # Optional: print periodic updates
+                # Optional: print periodic updates (only when game is still running)
                 step_count = int(game_state[0, 0, 1].item())
                 if step_count % 50 == 0:  # Print every 50 steps
                     print(f"Step {step_count}: Score = {current_score:.1f}")
@@ -525,6 +531,11 @@ class GameInference:
                     self._draw_win_screen(current_score, step_count)
                 elif self.game_result == 'lose':
                     self._draw_lose_screen(current_score, step_count)
+                
+                # Auto-exit after 10 seconds of showing end screen
+                if self.game_end_time and (current_time - self.game_end_time) > 10000:  # 10 seconds
+                    print("Auto-exiting after 10 seconds...")
+                    running = False
             
             # Control frame rate
             self.clock.tick(60)  # 60 FPS
@@ -574,7 +585,7 @@ class GameInference:
         self.screen.blit(message_surface, message_rect)
         
         # Exit instruction
-        exit_text = "Press ESC to exit or any key to continue watching"
+        exit_text = "Press any key to exit (auto-exit in 10 seconds)"
         exit_surface = self.font_small.render(exit_text, True, (200, 200, 200))
         exit_rect = exit_surface.get_rect(center=(self.screen.get_width()//2, self.screen.get_height()*7//8))
         self.screen.blit(exit_surface, exit_rect)
@@ -621,7 +632,7 @@ class GameInference:
         self.screen.blit(message_surface, message_rect)
         
         # Exit instruction
-        exit_text = "Press ESC to exit or any key to continue watching"
+        exit_text = "Press any key to exit (auto-exit in 10 seconds)"
         exit_surface = self.font_small.render(exit_text, True, (200, 200, 200))
         exit_rect = exit_surface.get_rect(center=(self.screen.get_width()//2, self.screen.get_height()*7//8))
         self.screen.blit(exit_surface, exit_rect)
