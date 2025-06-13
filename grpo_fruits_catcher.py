@@ -30,7 +30,7 @@ class GameConfig:
 
 @dataclass
 class TrainerConfig:
-    hidden_size: int = 256
+    hidden_size: int = 512
     batch_size: int = 8
     total_epochs: int = 200
     max_steps: int = 200  # maximum number of steps before game ends
@@ -105,6 +105,13 @@ class GameBrain(nn.Module):
         log_prob = action_dist.log_prob(action)
         
         return action, log_prob
+    
+    @classmethod
+    def from_pretrained(cls, path: str, config: TrainerConfig = TrainerConfig()) -> 'GameBrain':
+        model = cls(config)
+        state_dict = torch.load(path)
+        model.load_state_dict(state_dict=state_dict)
+        return model
 
 
 class GameEngine:

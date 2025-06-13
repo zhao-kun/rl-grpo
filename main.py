@@ -17,7 +17,7 @@ def main():
         batch_size=16,  # Good batch size for stability
         max_steps=150,  # Optimal episode length
         hidden_size=512,  # Larger network for better learning capacity
-        compile=True
+        compile=False
     )
 
     # Create a trainer instance
