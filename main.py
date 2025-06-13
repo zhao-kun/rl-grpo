@@ -12,8 +12,8 @@ def main():
     # Define the trainer configuration with optimized hyperparameters
     trainer_config = TrainerConfig(
         game_config=game_config, 
-        total_epochs=4000,  # Shorter training to see faster results
-        lr_rate=5e-5,  # Reduced learning rate for stable training
+        total_epochs=2000,  # Shorter training to see faster results
+        lr_rate=1e-4,  # Reduced learning rate for stable training
         batch_size=16,  # Good batch size for stability
         max_steps=150,  # Optimal episode length
         hidden_size=512,  # Larger network for better learning capacity

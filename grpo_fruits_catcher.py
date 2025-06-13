@@ -50,17 +50,19 @@ class GameBrain(nn.Module):
         super(GameBrain, self).__init__()
         self.device = device
         self.input_size = config.game_config.get_inputsize()
-        self.fc_in = nn.Linear(self.input_size, config.hidden_size)
+        self.fc_in = nn.Linear(self.input_size, config.hidden_size, bias=False)
         self.fc1 = nn.Linear(config.hidden_size, config.hidden_size)
         self.dropout = nn.Dropout(0.1)  # Add dropout for regularization
         self.fc_out = nn.Linear(config.hidden_size, 3)  # 3 actions: left, stay, right
         self._init_weights()
+        self.layer_norm = nn.LayerNorm(config.hidden_size)  # Layer normalization for stability
 
     def _init_weights(self):
         """Initialize network weights with better initialization"""
         # Use He initialization for ReLU networks
-        nn.init.kaiming_normal_(self.fc_in.weight, mode='fan_in', nonlinearity='relu')
-        nn.init.constant_(self.fc_in.bias, 0)
+        nn.init.normal_(self.fc_in.weight, mean=0.0, std=0.02)
+        #nn.init.kaiming_normal_(self.fc_in.weight, mode='fan_in', nonlinearity='relu')
+        #nn.init.constant_(self.fc_in.bias, 0)
         nn.init.kaiming_normal_(self.fc1.weight, mode='fan_in', nonlinearity='relu')
         nn.init.constant_(self.fc1.bias, 0)
         # Small initialization for output layer to prevent extreme initial policy
@@ -78,8 +80,8 @@ class GameBrain(nn.Module):
             Action logits of shape (batch_size, output_size)
         """
         # Input -> Hidden layer with ReLU activation
-        x = F.relu(self.fc_in(x))
-        x = self.dropout(x)  # Apply dropout
+        x = self.fc_in(x)
+        x = x + F.relu(self.layer_norm(x))
         x = F.relu(self.fc1(x))
         x = self.dropout(x)  # Apply dropout
         logits = self.fc_out(x)
