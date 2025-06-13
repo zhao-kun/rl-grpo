@@ -457,8 +457,6 @@ class GameInference:
             self._add_catch_particles(sprite_screen_x, sprite_screen_y - 30, fruit_type)
         
         self.previous_score = current_score
-        
-        pygame.display.flip()
 
     def run(self):
         """Run the game inference with AI control"""
@@ -536,6 +534,9 @@ class GameInference:
                 if self.game_end_time and (current_time - self.game_end_time) > 10000:  # 10 seconds
                     print("Auto-exiting after 10 seconds...")
                     running = False
+            
+            # Update display (moved here to include ending screens)
+            pygame.display.flip()
             
             # Control frame rate
             self.clock.tick(60)  # 60 FPS
