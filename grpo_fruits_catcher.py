@@ -125,42 +125,62 @@ class GameBrain(nn.Module):
         """
         checkpoint = torch.load(path, map_location=device)
         
-        # Reconstruct GameConfig from saved dictionary
-        game_config_dict = checkpoint['game_config']
-        game_config = GameConfig(
-            screen_width=game_config_dict['screen_width'],
-            screen_height=game_config_dict['screen_height'],
-            sprite_width=game_config_dict['sprite_width'],
-            sprite_height=game_config_dict['sprite_height'],
-            max_fruits_on_screen=game_config_dict['max_fruits_on_screen'],
-            min_fruits_on_screen=game_config_dict['min_fruits_on_screen'],
-            min_interval_step_fruits=game_config_dict['min_interval_step_fruits'],
-            view_height_multiplier=game_config_dict['view_height_multiplier'],
-            view_width_multiplier=game_config_dict['view_width_multiplier'],
-            refresh_timer=game_config_dict['refresh_timer'],
-            ended_game_score=game_config_dict['ended_game_score']
-        )
+        # Check if this is a new format checkpoint with configs or old format with just weights
+        if 'game_config' in checkpoint and 'trainer_config' in checkpoint:
+            # New format with saved configs
+            # Reconstruct GameConfig from saved dictionary
+            game_config_dict = checkpoint['game_config']
+            game_config = GameConfig(
+                screen_width=game_config_dict['screen_width'],
+                screen_height=game_config_dict['screen_height'],
+                sprite_width=game_config_dict['sprite_width'],
+                sprite_height=game_config_dict['sprite_height'],
+                max_fruits_on_screen=game_config_dict['max_fruits_on_screen'],
+                min_fruits_on_screen=game_config_dict['min_fruits_on_screen'],
+                min_interval_step_fruits=game_config_dict['min_interval_step_fruits'],
+                view_height_multiplier=game_config_dict['view_height_multiplier'],
+                view_width_multiplier=game_config_dict['view_width_multiplier'],
+                refresh_timer=game_config_dict['refresh_timer'],
+                fail_ended_game_score=game_config_dict.get('fail_ended_game_score', -30),
+                win_ended_game_score=game_config_dict.get('win_ended_game_score', 30)
+            )
+            
+            # Reconstruct TrainerConfig from saved dictionary
+            trainer_config_dict = checkpoint['trainer_config']
+            trainer_config = TrainerConfig(
+                hidden_size=trainer_config_dict['hidden_size'],
+                batch_size=trainer_config_dict['batch_size'],
+                total_epochs=trainer_config_dict['total_epochs'],
+                max_steps=trainer_config_dict['max_steps'],
+                game_config=game_config,
+                lr_rate=trainer_config_dict['lr_rate'],
+                compile=trainer_config_dict['compile']
+            )
+            
+            # Create and load the model
+            model = cls(trainer_config, device)
+            model.load_state_dict(checkpoint['model_state_dict'])
+            
+            print(f"Model loaded from {path} (new format)")
+        else:
+            # Old format with just model weights - use default configs
+            print(f"Loading model from {path} (old format - using default configs)")
+            
+            # Use default configurations
+            game_config = GameConfig()
+            trainer_config = TrainerConfig(game_config=game_config)
+            
+            # Create model with default config
+            model = cls(trainer_config, device)
+            
+            # Load the state dict directly (old format)
+            model.load_state_dict(checkpoint)
         
-        # Reconstruct TrainerConfig from saved dictionary
-        trainer_config_dict = checkpoint['trainer_config']
-        trainer_config = TrainerConfig(
-            hidden_size=trainer_config_dict['hidden_size'],
-            batch_size=trainer_config_dict['batch_size'],
-            total_epochs=trainer_config_dict['total_epochs'],
-            max_steps=trainer_config_dict['max_steps'],
-            game_config=game_config,
-            lr_rate=trainer_config_dict['lr_rate'],
-            compile=trainer_config_dict['compile']
-        )
-        
-        # Create and load the model
-        model = cls(trainer_config, device)
-        model.load_state_dict(checkpoint['model_state_dict'])
         model = model.eval().to(device=device)  # Set to evaluation mode
         
-        print(f"Model loaded from {path}")
         print(f"Game config: {game_config.screen_width}x{game_config.screen_height}, max_fruits: {game_config.max_fruits_on_screen}")
         print(f"Model config: hidden_size={trainer_config.hidden_size}")
+        print(f"Win/Lose thresholds: {game_config.win_ended_game_score}/{game_config.fail_ended_game_score}")
         
         return model, game_config, trainer_config
 
@@ -600,7 +620,8 @@ class Trainer:
             'view_height_multiplier': self.config.game_config.view_height_multiplier,
             'view_width_multiplier': self.config.game_config.view_width_multiplier,
             'refresh_timer': self.config.game_config.refresh_timer,
-            'ended_game_score': self.config.game_config.ended_game_score
+            'fail_ended_game_score': self.config.game_config.fail_ended_game_score,
+            'win_ended_game_score': self.config.game_config.win_ended_game_score
         }
         
         trainer_config_dict = {

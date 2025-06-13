@@ -38,6 +38,10 @@ class GameInference:
         
         # Initialize score tracking for effects
         self.previous_score = 0
+        
+        # Game ending state tracking
+        self.game_ended = False
+        self.game_result = None  # 'win', 'lose', or None
     
     @classmethod
     def from_pretrained(cls, model_path: str, device: str = 'cpu') -> 'GameInference':
@@ -468,7 +472,7 @@ class GameInference:
         last_action = None
         
         print("Starting AI-controlled Fruits Catcher game...")
-        print(f"Game will end when score reaches {self.game_config.ended_game_score}")
+        print(f"Game will end when score reaches {self.game_config.win_ended_game_score} (WIN) or {self.game_config.fail_ended_game_score} (LOSE)")
         
         while running:
             current_time = pygame.time.get_ticks()
@@ -493,10 +497,16 @@ class GameInference:
                 # Get current score
                 current_score = game_state[0, 0, 0].item()
                 
-                # Check if game should end
-                if current_score <= self.game_config.ended_game_score:
-                    print(f"Game Over! Final Score: {current_score:.1f}")
-                    running = False
+                # Check win/lose conditions
+                if not self.game_ended:
+                    if current_score >= self.game_config.win_ended_game_score:
+                        print(f"🏆 AI WINS! Final Score: {current_score:.1f}")
+                        self.game_ended = True
+                        self.game_result = 'win'
+                    elif current_score <= self.game_config.fail_ended_game_score:
+                        print(f"💥 AI LOSES! Final Score: {current_score:.1f}")
+                        self.game_ended = True
+                        self.game_result = 'lose'
                 
                 # Optional: print periodic updates
                 step_count = int(game_state[0, 0, 1].item())
@@ -506,11 +516,115 @@ class GameInference:
             # Draw the game
             self._draw_game(inputs_state, game_state, last_action)
             
+            # Draw ending screen if game is over
+            if self.game_ended:
+                current_score = game_state[0, 0, 0].item()
+                step_count = int(game_state[0, 0, 1].item())
+                
+                if self.game_result == 'win':
+                    self._draw_win_screen(current_score, step_count)
+                elif self.game_result == 'lose':
+                    self._draw_lose_screen(current_score, step_count)
+            
             # Control frame rate
             self.clock.tick(60)  # 60 FPS
         
         pygame.quit()
         print("Game finished!")
+
+    def _draw_win_screen(self, score, steps):
+        """Draw the victory screen when AI wins"""
+        # Semi-transparent overlay
+        overlay = pygame.Surface((self.screen.get_width(), self.screen.get_height()))
+        overlay.set_alpha(200)
+        overlay.fill((0, 50, 0))  # Dark green overlay
+        self.screen.blit(overlay, (0, 0))
+        
+        # Victory title
+        title_text = "🏆 AI VICTORY! 🏆"
+        title_surface = self.font_large.render(title_text, True, (255, 215, 0))  # Gold color
+        title_rect = title_surface.get_rect(center=(self.screen.get_width()//2, self.screen.get_height()//3))
+        
+        # Add glow effect to title
+        for offset in [(2, 2), (-2, -2), (2, -2), (-2, 2)]:
+            glow_surface = self.font_large.render(title_text, True, (255, 255, 255))
+            glow_rect = glow_surface.get_rect(center=(title_rect.centerx + offset[0], title_rect.centery + offset[1]))
+            self.screen.blit(glow_surface, glow_rect)
+        
+        self.screen.blit(title_surface, title_rect)
+        
+        # Victory stats
+        stats_y = self.screen.get_height()//2
+        stats = [
+            f"🎯 Final Score: {score:.1f}",
+            f"⏱️ Steps Taken: {steps}",
+            f"🤖 AI Performance: EXCELLENT!",
+            f"🌟 Target Reached: {self.game_config.win_ended_game_score}"
+        ]
+        
+        for i, stat in enumerate(stats):
+            stat_surface = self.font_medium.render(stat, True, (200, 255, 200))
+            stat_rect = stat_surface.get_rect(center=(self.screen.get_width()//2, stats_y + i*40))
+            self.screen.blit(stat_surface, stat_rect)
+        
+        # Victory message
+        message = "The AI has successfully mastered the Fruits Catcher game!"
+        message_surface = self.font_small.render(message, True, (255, 255, 255))
+        message_rect = message_surface.get_rect(center=(self.screen.get_width()//2, self.screen.get_height()*3//4))
+        self.screen.blit(message_surface, message_rect)
+        
+        # Exit instruction
+        exit_text = "Press ESC to exit or any key to continue watching"
+        exit_surface = self.font_small.render(exit_text, True, (200, 200, 200))
+        exit_rect = exit_surface.get_rect(center=(self.screen.get_width()//2, self.screen.get_height()*7//8))
+        self.screen.blit(exit_surface, exit_rect)
+    
+    def _draw_lose_screen(self, score, steps):
+        """Draw the game over screen when AI loses"""
+        # Semi-transparent overlay
+        overlay = pygame.Surface((self.screen.get_width(), self.screen.get_height()))
+        overlay.set_alpha(200)
+        overlay.fill((50, 0, 0))  # Dark red overlay
+        self.screen.blit(overlay, (0, 0))
+        
+        # Game over title
+        title_text = "💥 GAME OVER 💥"
+        title_surface = self.font_large.render(title_text, True, (255, 100, 100))  # Red color
+        title_rect = title_surface.get_rect(center=(self.screen.get_width()//2, self.screen.get_height()//3))
+        
+        # Add glow effect to title
+        for offset in [(2, 2), (-2, -2), (2, -2), (-2, 2)]:
+            glow_surface = self.font_large.render(title_text, True, (255, 255, 255))
+            glow_rect = glow_surface.get_rect(center=(title_rect.centerx + offset[0], title_rect.centery + offset[1]))
+            self.screen.blit(glow_surface, glow_rect)
+        
+        self.screen.blit(title_surface, title_rect)
+        
+        # Failure stats
+        stats_y = self.screen.get_height()//2
+        stats = [
+            f"💔 Final Score: {score:.1f}",
+            f"⏱️ Steps Taken: {steps}",
+            f"🤖 AI Performance: NEEDS IMPROVEMENT",
+            f"🎯 Failure Threshold: {self.game_config.fail_ended_game_score}"
+        ]
+        
+        for i, stat in enumerate(stats):
+            stat_surface = self.font_medium.render(stat, True, (255, 200, 200))
+            stat_rect = stat_surface.get_rect(center=(self.screen.get_width()//2, stats_y + i*40))
+            self.screen.blit(stat_surface, stat_rect)
+        
+        # Failure message
+        message = "The AI needs more training to master this game!"
+        message_surface = self.font_small.render(message, True, (255, 255, 255))
+        message_rect = message_surface.get_rect(center=(self.screen.get_width()//2, self.screen.get_height()*3//4))
+        self.screen.blit(message_surface, message_rect)
+        
+        # Exit instruction
+        exit_text = "Press ESC to exit or any key to continue watching"
+        exit_surface = self.font_small.render(exit_text, True, (200, 200, 200))
+        exit_rect = exit_surface.get_rect(center=(self.screen.get_width()//2, self.screen.get_height()*7//8))
+        self.screen.blit(exit_surface, exit_rect)
 
 class Particle:
     def __init__(self, x, y, color, velocity_x=0, velocity_y=0, life_time=60):

@@ -11,23 +11,38 @@ from game_inference import GameInference
 def main():
     print("=== AI Fruits Catcher Game Demo ===")
     
-    # Use the existing trained model
-    model_path = "grpo_fruits_catcher-000001.pth"
+    # Use the existing trained model (try multiple options)
+    model_candidates = ["grpo_fruits_catcher-003000.pth", "grpo_fruits_catcher-002000.pth", "grpo_fruits_catcher-000001.pth"]
+    model_path = None
+    
+    for candidate in model_candidates:
+        import os
+        if os.path.exists(candidate):
+            model_path = candidate
+            break
+    
+    if model_path is None:
+        print("❌ Error: No trained model found!")
+        print("Please ensure you have trained a model first.")
+        print("Run: python3 grpo_fruits_catcher.py")
+        return
     
     # Determine computation device
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(f"Using device: {device}")
+    print(f"Loading model: {model_path}")
     
     try:
         # Create and run the game
         game = GameInference.from_pretrained(model_path, device)
         
         print("\n🎮 Game Instructions:")
-        print("• Red circles = Falling fruits (catch them!)")
-        print("• Green rectangle = AI-controlled sprite")
+        print("• 🍎 Fruit emojis = Falling fruits (catch them!)")
+        print("• 🤖 Green rectangle with eyes = AI-controlled sprite")
         print("• Score increases when catching fruits")
         print("• Score decreases when missing fruits")
-        print("• Game ends when score reaches", game.game_config.ended_game_score)
+        print(f"• 🏆 AI WINS when score reaches {game.game_config.win_ended_game_score}")
+        print(f"• 💥 AI LOSES when score drops to {game.game_config.fail_ended_game_score}")
         print("• Press ESC to quit anytime")
         print("\nStarting game in 3 seconds...")
         
