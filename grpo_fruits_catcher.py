@@ -18,6 +18,10 @@ class GameConfig:
     max_fruits_on_screen: int = 3
     min_fruits_on_screen: int = 1
     min_interval_step_fruits: int = 3
+    view_height_multiplier: float = 2.0  #  Use to scale the height for view cordinate to get better visual effect
+    view_width_multiplier: float = 2.0  #  Use to scale the width for view cordinate to get better visual effect
+    refresh_timer: int = 100  # When refresh_timer reach, the game game engine will update once, in millisecond
+    ended_game_score: int = -200 # Game ends when score reaches this value
 
     def get_inputsize(self):
         # Sprite position (1) + fruits data (max_fruits * 3 dimensions)
