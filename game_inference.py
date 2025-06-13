@@ -107,11 +107,13 @@ class GameInference:
         if emoji_font_path:
             self.font_emoji = pygame.font.Font(emoji_font_path, 24)
             self.font_emoji_ui = pygame.font.Font(emoji_font_path, 8)  # Even smaller font for UI emojis
-            print(f"[Debug] Using emoji font: {emoji_font_path}, UI size: 8px")
+            self.font_emoji_large = pygame.font.Font(emoji_font_path, 36)  # Larger emoji font for titles
+            print(f"[Debug] Using emoji font: {emoji_font_path}, UI size: 8px, Large size: 36px")
         else:
             # Fallback to default font (may not support emoji)
             self.font_emoji = pygame.font.Font(None, 24)
             self.font_emoji_ui = pygame.font.Font(None, 8)  # Even smaller font for UI emojis
+            self.font_emoji_large = pygame.font.Font(None, 36)  # Larger fallback font
             print("[Warning] Noto Color Emoji font not found. Fruit emojis may not display correctly.")
             print("[Debug] Using default font for UI emojis, size: 8px")
         
@@ -410,9 +412,11 @@ class GameInference:
         for particle in self.particles:
             particle.draw(self.screen)
         
-        # Draw catch effects
+        # Draw catch effects with emoji font if available
         for effect in self.catch_effects:
-            effect.draw(self.screen, self.font_medium)
+            # Try to use emoji font for better emoji rendering
+            font_to_use = self.font_emoji if hasattr(self, 'font_emoji') else self.font_medium
+            effect.draw(self.screen, font_to_use)
     def _draw_game(self, inputs_state: torch.Tensor, game_state: torch.Tensor, last_action: int = None):
         """Draw the current game state with enhanced visuals"""
         # Update effects first
@@ -552,26 +556,26 @@ class GameInference:
         overlay.fill((0, 50, 0))  # Dark green overlay
         self.screen.blit(overlay, (0, 0))
         
-        # Victory title
-        title_text = "🏆 AI VICTORY! 🏆"
-        title_surface = self.font_large.render(title_text, True, (255, 215, 0))  # Gold color
+        # Victory title - use simpler unicode symbols that work without emoji fonts
+        title_text_simple = "★ AI VICTORY! ★"
+        title_surface = self.font_large.render(title_text_simple, True, (255, 215, 0))  # Gold color
         title_rect = title_surface.get_rect(center=(self.screen.get_width()//2, self.screen.get_height()//3))
         
         # Add glow effect to title
         for offset in [(2, 2), (-2, -2), (2, -2), (-2, 2)]:
-            glow_surface = self.font_large.render(title_text, True, (255, 255, 255))
+            glow_surface = self.font_large.render(title_text_simple, True, (255, 255, 255))
             glow_rect = glow_surface.get_rect(center=(title_rect.centerx + offset[0], title_rect.centery + offset[1]))
             self.screen.blit(glow_surface, glow_rect)
         
         self.screen.blit(title_surface, title_rect)
         
-        # Victory stats
+        # Victory stats - use simpler unicode symbols
         stats_y = self.screen.get_height()//2
         stats = [
-            f"🎯 Final Score: {score:.1f}",
-            f"⏱️ Steps Taken: {steps}",
-            f"🤖 AI Performance: EXCELLENT!",
-            f"🌟 Target Reached: {self.game_config.win_ended_game_score}"
+            f"► Final Score: {score:.1f}",
+            f"► Steps Taken: {steps}",
+            f"► AI Performance: EXCELLENT!",
+            f"► Target Reached: {self.game_config.win_ended_game_score}"
         ]
         
         for i, stat in enumerate(stats):
@@ -599,26 +603,26 @@ class GameInference:
         overlay.fill((50, 0, 0))  # Dark red overlay
         self.screen.blit(overlay, (0, 0))
         
-        # Game over title
-        title_text = "💥 GAME OVER 💥"
-        title_surface = self.font_large.render(title_text, True, (255, 100, 100))  # Red color
+        # Game over title - use simpler unicode symbols that work without emoji fonts
+        title_text_simple = "✗ GAME OVER ✗"
+        title_surface = self.font_large.render(title_text_simple, True, (255, 100, 100))  # Red color
         title_rect = title_surface.get_rect(center=(self.screen.get_width()//2, self.screen.get_height()//3))
         
         # Add glow effect to title
         for offset in [(2, 2), (-2, -2), (2, -2), (-2, 2)]:
-            glow_surface = self.font_large.render(title_text, True, (255, 255, 255))
+            glow_surface = self.font_large.render(title_text_simple, True, (255, 255, 255))
             glow_rect = glow_surface.get_rect(center=(title_rect.centerx + offset[0], title_rect.centery + offset[1]))
             self.screen.blit(glow_surface, glow_rect)
         
         self.screen.blit(title_surface, title_rect)
         
-        # Failure stats
+        # Failure stats - use simpler unicode symbols
         stats_y = self.screen.get_height()//2
         stats = [
-            f"💔 Final Score: {score:.1f}",
-            f"⏱️ Steps Taken: {steps}",
-            f"🤖 AI Performance: NEEDS IMPROVEMENT",
-            f"🎯 Failure Threshold: {self.game_config.fail_ended_game_score}"
+            f"► Final Score: {score:.1f}",
+            f"► Steps Taken: {steps}",
+            f"► AI Performance: NEEDS IMPROVEMENT",
+            f"► Failure Threshold: {self.game_config.fail_ended_game_score}"
         ]
         
         for i, stat in enumerate(stats):
@@ -677,11 +681,16 @@ class CatchEffect:
     
     def draw(self, screen, font):
         alpha = int(255 * (self.life_time / self.max_life))
-        text = f"🎉 +{self.fruit_type['name']}! 🎉"
-        color = (*self.fruit_type['color'], min(alpha, 255))
+        text_emoji = f"🎉 +{self.fruit_type['name']}! 🎉"
+        text_fallback = f"+{self.fruit_type['name']}!"
         
-        # Draw glowing text effect
-        glow_surface = font.render(text, True, (255, 255, 255))
-        text_surface = font.render(text, True, self.fruit_type['color'])
+        # Try to render with emoji support first
+        try:
+            text_surface = font.render(text_emoji, True, self.fruit_type['color'])
+            glow_surface = font.render(text_emoji, True, (255, 255, 255))
+        except:
+            # Fall back to non-emoji version
+            text_surface = font.render(text_fallback, True, self.fruit_type['color'])
+            glow_surface = font.render(text_fallback, True, (255, 255, 255))
         
         screen.blit(text_surface, (self.x - text_surface.get_width()//2, self.y))
