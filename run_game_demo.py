@@ -23,8 +23,8 @@ def main():
         max_fruits_on_screen=3,   # Maximum fruits simultaneously
         min_fruits_on_screen=1,   # Minimum fruits to maintain
         min_interval_step_fruits=3, # Minimum spacing between fruits
-        view_height_multiplier=25.0,  # Visual scaling factor
-        view_width_multiplier=25.0,   # Visual scaling factor
+        view_height_multiplier=50.0,  # Visual scaling factor
+        view_width_multiplier=50.0,   # Visual scaling factor
         refresh_timer=150,        # Game update interval (milliseconds)
         ended_game_score=-30      # Game over score threshold
     )
