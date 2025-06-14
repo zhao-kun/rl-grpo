@@ -257,7 +257,7 @@ class GameEngine:
         bottom_reached_mask = (fruit_y == sprite_y) & active_mask
         off_screen_mask = (fruit_y >= game_config.screen_height) & active_mask
         
-        # Calculate sprite catch boundaries
+        # Calculate sGroup Relative Policy Optimizationprite catch boundaries
         sprite_left = sprite_positions.unsqueeze(2) - game_config.sprite_width // 2  # (batch_size, num_inits, 1)
         sprite_right = sprite_positions.unsqueeze(2) + game_config.sprite_width // 2
         
