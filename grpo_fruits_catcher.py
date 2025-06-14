@@ -366,11 +366,11 @@ class Trainer:
             eps=1e-8,
             weight_decay=1e-5  # Small weight decay for regularization
         )
-        # Learning rate scheduler
+        # Improved learning rate scheduler for more stable training
         self.scheduler = torch.optim.lr_scheduler.StepLR(
             self.optimizer, 
-            step_size=1000,  # Reduce learning rate every 1000 epochs
-            gamma=0.95  # Multiply learning rate by 0.95
+            step_size=500,  # Reduce learning rate every 500 epochs (more conservative)
+            gamma=0.8  # Multiply learning rate by 0.8 (less aggressive reduction)
         )
 
     
@@ -412,7 +412,7 @@ class Trainer:
     
     def _reward(self, game_state: torch.Tensor, prev_game_state: torch.Tensor = None) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Calculate reward based on game state with simpler, more stable reward structure.
+        Calculate reward with improved stability and reduced noise.
         
         Args:
             game_state: shape (batch_size, num_inits, 3) containing [score, step_count, fruits_reached_bottom]
@@ -435,38 +435,34 @@ class Trainer:
             prev_score = prev_game_state[:, :, 0]
             score_delta = score - prev_score
             
-            # Reward based on score change: +5 for catching fruit, -2 for missing (less penalty)
-            catch_reward = torch.clamp(score_delta, min=0.0) * 5.0  # Positive score changes (catching)
-            miss_penalty = torch.clamp(score_delta, max=0.0) * 2.0  # Negative score changes (missing)
+            # More balanced reward: +2 for catching fruit, -1 for missing
+            catch_reward = torch.clamp(score_delta, min=0.0) * 2.0  # Reduced positive reward
+            miss_penalty = torch.clamp(score_delta, max=0.0) * 1.0  # Reduced penalty
             immediate_reward = catch_reward + miss_penalty
             
-            # Small step penalty to encourage efficiency
-            step_penalty = -0.01
+            # Smaller step penalty to encourage efficiency
+            step_penalty = -0.005  # Reduced step penalty
             
-            # Baseline reward to make rewards more positive
-            baseline_reward = 0.5
+            # Smaller baseline reward for stability
+            baseline_reward = 0.1  # Reduced baseline
             
-            # Small bonus for maintaining positive cumulative score
-            score_bonus = torch.clamp(score * 0.05, min=0.0, max=1.0)
+            # Progressive score bonus with diminishing returns
+            score_bonus = torch.tanh(score * 0.02) * 0.2  # Tanh for stability, reduced scale
             
             reward = immediate_reward + step_penalty + baseline_reward + score_bonus
         else:
-            # Initial reward based on current score with baseline
-            reward = score * 0.1 + 0.5
+            # Initial reward based on current score with smaller scaling
+            reward = torch.tanh(score * 0.05) * 0.5  # Tanh for stability
         
-        # Add very small noise for GRPO group variance
-        noise = torch.randn_like(score, device=device) * 0.03
+        # Significantly reduced noise for better stability
+        noise = torch.randn_like(score, device=device) * 0.01  # Reduced noise
         reward = reward + noise
         
         # Clamp to reasonable bounds
         reward = torch.clamp(reward, -5.0, 15.0)
         
         return reward, score
-        
-        # Clamp to reasonable bounds
-        reward = torch.clamp(reward, -5.0, 10.0)
-        
-        return reward, score
+
 
     def _create_trajector(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         '''
@@ -521,14 +517,18 @@ class Trainer:
         batch_ix = torch.arange(actions.shape[0], device=self.device)
         log_action_probs = log_probs[batch_ix, actions]  # Correct batch-wise indexing
 
-        # Calculate policy loss
-        policy_loss = -torch.mean(log_action_probs * reward)
+        # Calculate policy loss with reward clipping for stability
+        clipped_rewards = torch.clamp(reward, min=-5.0, max=5.0)  # Clip extreme rewards
+        policy_loss = -torch.mean(log_action_probs * clipped_rewards)
         
-        # Add entropy bonus to encourage exploration
+        # Increased entropy bonus to encourage exploration and prevent overfitting
         entropy = -torch.sum(probs * log_probs, dim=-1)  # Calculate entropy
-        entropy_bonus = 0.01 * torch.mean(entropy)  # Small entropy coefficient
+        entropy_bonus = 0.05 * torch.mean(entropy)  # Increased entropy coefficient
         
-        return policy_loss - entropy_bonus  # Subtract entropy bonus (we want to maximize entropy)
+        # Add L2 regularization to prevent overfitting
+        l2_reg = 0.0001 * sum(p.pow(2.0).sum() for p in self.brain.parameters())
+        
+        return policy_loss - entropy_bonus + l2_reg  # Include regularization
     
     def _train_epoch(self) -> Tuple[float, float]:
         """
@@ -551,14 +551,29 @@ class Trainer:
         returns = torch.zeros_like(reward_history)
         cumulative_return = torch.zeros_like(reward_history[-1])
         
-        # Work backwards to calculate returns
+        # Work backwards to calculate returns with higher discount factor for stability
+        discount_factor = 0.95  # Reduced from 0.99 for more stable learning
         for t in reversed(range(num_steps)):
-            cumulative_return = reward_history[t] + 0.99 * cumulative_return  # discount factor 0.99
+            cumulative_return = reward_history[t] + discount_factor * cumulative_return
             returns[t] = cumulative_return
 
-        epsilon = 1e-7  # for safe division by the STD
-        # Group normalize returns for GRPO
-        group_normed_returns = (returns - torch.mean(returns, dim=-1, keepdim=True)) / (torch.std(returns, dim=-1, keepdim=True) + epsilon)
+        # Improved group normalization with better stability
+        epsilon = 1e-6  # Smaller epsilon for better numerical stability
+        
+        # Calculate statistics over all dimensions for more stable normalization
+        returns_flat = returns.reshape(-1)
+        mean_return = torch.mean(returns_flat)
+        std_return = torch.std(returns_flat)
+        
+        # Apply normalization with minimum std threshold to prevent division by near-zero
+        min_std = 0.1
+        effective_std = torch.max(std_return, torch.tensor(min_std, device=returns.device))
+        
+        group_normed_returns = (returns - mean_return) / (effective_std + epsilon)
+        
+        # Apply additional clipping to prevent extreme values
+        group_normed_returns = torch.clamp(group_normed_returns, min=-3.0, max=3.0)
+        
         f_returns = group_normed_returns.reshape((num_steps, batch_size * num_inits))
         
         total_loss = 0.0
@@ -571,8 +586,8 @@ class Trainer:
         self.optimizer.zero_grad()
         total_loss.backward()
         
-        # Gradient clipping to prevent exploding gradients
-        torch.nn.utils.clip_grad_norm_(self.brain.parameters(), max_norm=1.0)
+        # Gradient clipping with more conservative threshold
+        torch.nn.utils.clip_grad_norm_(self.brain.parameters(), max_norm=0.5)  # Reduced from 1.0
         
         self.optimizer.step()
         
@@ -587,20 +602,41 @@ class Trainer:
         score = 0.0
         best_score = float('-inf')
         
+        # Early stopping parameters
+        patience = 300  # Number of epochs to wait for improvement
+        no_improvement_count = 0
+        best_model_state = None
+        
         for epoch in tqdm(range(self.config.total_epochs)):
             final_reward[epoch], score = self._train_epoch()
             
             # Step the learning rate scheduler
             self.scheduler.step()
             
-            # Track best performance and print selectively
+            # Track best performance and implement early stopping
             if score > best_score:
                 best_score = score
+                no_improvement_count = 0  # Reset counter
+                # Save best model state
+                best_model_state = {k: v.clone() for k, v in self.brain.state_dict().items()}
                 print(f"epoch={epoch}, Reward:{final_reward[epoch]:.6f}, Score: {score:.3f} (NEW BEST!) LR: {self.optimizer.param_groups[0]['lr']:.2e}")
-            elif epoch % 50 == 0:  # Print every 50 epochs instead of every 10
-                print(f"epoch={epoch}, Reward:{final_reward[epoch]:.6f}, Score: {score:.3f}, LR: {self.optimizer.param_groups[0]['lr']:.2e}")
+            else:
+                no_improvement_count += 1
+                if epoch % 50 == 0:  # Print every 50 epochs instead of every 10
+                    print(f"epoch={epoch}, Reward:{final_reward[epoch]:.6f}, Score: {score:.3f}, LR: {self.optimizer.param_groups[0]['lr']:.2e}")
+            
+            # Early stopping check
+            if no_improvement_count >= patience:
+                print(f"\n🛑 Early stopping at epoch {epoch}! No improvement for {patience} epochs.")
+                print(f"📈 Best score achieved: {best_score:.3f}")
+                
+                # Restore best model weights
+                if best_model_state is not None:
+                    self.brain.load_state_dict(best_model_state)
+                    print("🔄 Restored best model weights.")
+                break
         
-        print(f"Final - Reward:{final_reward[self.config.total_epochs - 1]:.6f}, Score: {score:.3f}, Best Score: {best_score:.3f}")
+        print(f"Final - Reward:{final_reward[epoch]:.6f}, Score: {score:.3f}, Best Score: {best_score:.3f}")
         return final_reward
     
     def save(self, name: str):
