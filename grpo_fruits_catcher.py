@@ -55,6 +55,7 @@ class GameBrain(nn.Module):
         self.dropout = nn.Dropout(0.1)  # Add dropout for regularization
         self.fc_out = nn.Linear(config.hidden_size, 3)  # 3 actions: left, stay, right
         self._init_weights()
+        self.gelu = nn.GELU(approximate='tanh')
         self.layer_norm = nn.LayerNorm(config.hidden_size)  # Layer normalization for stability
 
     def _init_weights(self):
@@ -81,8 +82,8 @@ class GameBrain(nn.Module):
         """
         # Input -> Hidden layer with ReLU activation
         x = self.fc_in(x)
-        x = x + F.relu(self.layer_norm(x))
-        x = F.relu(self.fc1(x))
+        x = x + self.layer_norm(self.gelu(x))
+        x = self.gelu(self.fc1(x))
         x = self.dropout(x)  # Apply dropout
         logits = self.fc_out(x)
         
