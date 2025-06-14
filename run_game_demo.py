@@ -59,6 +59,7 @@ def find_model_file(model_path=None, model_name='grpo_fruits_catcher'):
     if not model_candidates:
         default_candidates = [
             f"{model_name}-003000.pth",
+            f"{model_name}-002500.pth", 
             f"{model_name}-002000.pth", 
             f"{model_name}-001000.pth",
             f"{model_name}-000001.pth"
