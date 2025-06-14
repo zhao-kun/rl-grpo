@@ -23,6 +23,11 @@ def parse_args():
     model_group.add_argument('--device', type=str, choices=['auto', 'cpu', 'cuda'], default='auto',
                            help='💻 Device to run inference on (default: auto)')
     
+    # Game configuration overrides
+    game_group = parser.add_argument_group('🎮 Game Configuration Overrides')
+    game_group.add_argument('--min-interval-steps', type=int, default=None,
+                          help='⏱️ Override minimum steps between fruit spawns (overrides model config)')
+    
     # Display configuration
     display_group = parser.add_argument_group('📊 Display Configuration')
     display_group.add_argument('--verbose', '-v', action='store_true',
@@ -83,7 +88,13 @@ def display_verbose_config(game, args):
     print(f"📏 Screen Dimensions: {gc.screen_width} × {gc.screen_height}")
     print(f"🤖 AI Sprite Size: {gc.sprite_width} × {gc.sprite_height}")
     print(f"🍎 Fruits Range: {gc.min_fruits_on_screen} - {gc.max_fruits_on_screen} on screen")
-    print(f"⏱️  Fruit Spawn Interval: {gc.min_interval_step_fruits} steps minimum")
+    
+    # Show override indicator if min_interval_step_fruits was overridden
+    if args.min_interval_steps is not None:
+        print(f"⏱️  Fruit Spawn Interval: {gc.min_interval_step_fruits} steps minimum ⚙️ (OVERRIDDEN)")
+    else:
+        print(f"⏱️  Fruit Spawn Interval: {gc.min_interval_step_fruits} steps minimum")
+        
     print(f"📐 View Scaling: {gc.view_width_multiplier} × {gc.view_height_multiplier}")
     print(f"🔄 Refresh Rate: {gc.refresh_timer} ms")
     print(f"🎯 Score Thresholds: Win={gc.win_ended_game_score}, Lose={gc.fail_ended_game_score}")
@@ -140,8 +151,17 @@ def main():
         print(f"📂 Loading model: {model_path}")
     
     try:
+        # Validate override parameters
+        if args.min_interval_steps is not None and args.min_interval_steps < 0:
+            print(f"❌ Error: --min-interval-steps must be non-negative (got {args.min_interval_steps})")
+            return
+        
         # Create and run the game
-        game = GameInference.from_pretrained(model_path, device)
+        game = GameInference.from_pretrained(model_path, device, min_interval_step_fruits=args.min_interval_steps)
+        
+        # Display override information if not quiet
+        if not args.quiet and args.min_interval_steps is not None:
+            print(f"⚙️  Configuration Override: Fruit spawn interval set to {args.min_interval_steps} steps")
         
         # Display verbose configuration if requested
         if args.verbose:

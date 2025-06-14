@@ -13,13 +13,14 @@ class GameInference:
     gb: GameBrain = None
     engine: GameEngine = None
     
-    def __init__(self, model_path: str, device: str = 'cpu'):
+    def __init__(self, model_path: str, device: str = 'cpu', min_interval_step_fruits: int = None):
         """
         Initialize GameInference with automatic config loading from saved model.
         
         Args:
             model_path: Path to the saved model file
             device: Device to run inference on ('cpu' or 'cuda')
+            min_interval_step_fruits: Override value for minimum interval between fruit spawns
         """
         assert model_path is not None, "Model path must be provided"
         self.device = device
@@ -27,6 +28,11 @@ class GameInference:
         
         # Load model and configs from the saved checkpoint
         self.gb, self.game_config, self.trainer_config = GameBrain.from_pretrained(model_path, device)
+        
+        # Apply configuration overrides
+        if min_interval_step_fruits is not None:
+            self.game_config.min_interval_step_fruits = min_interval_step_fruits
+        
         self.engine = GameEngine(self.trainer_config, self.gb)
 
         if self.game_config.view_height_multiplier < 50.0:
@@ -45,18 +51,19 @@ class GameInference:
         self.game_end_time = None  # Track when game ended for auto-exit
     
     @classmethod
-    def from_pretrained(cls, model_path: str, device: str = 'cpu') -> 'GameInference':
+    def from_pretrained(cls, model_path: str, device: str = 'cpu', min_interval_step_fruits: int = None) -> 'GameInference':
         """
         Create GameInference instance from a pretrained model.
         
         Args:
             model_path: Path to the saved model file
             device: Device to run inference on
+            min_interval_step_fruits: Override value for minimum interval between fruit spawns
             
         Returns:
             GameInference instance with loaded model and configs
         """
-        return cls(model_path, device)
+        return cls(model_path, device, min_interval_step_fruits)
     
     
     def _init_pygame(self):

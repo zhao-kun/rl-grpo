@@ -34,6 +34,16 @@ python run_game_demo.py --device cuda     # Force CUDA usage
 python run_game_demo.py --device auto     # Auto-detect (default)
 ```
 
+### 🎮 Game Configuration Overrides
+
+#### `--min-interval-steps`
+Override minimum steps between fruit spawns (overrides model's saved configuration)
+```bash
+python run_game_demo.py --min-interval-steps 2   # Faster fruit spawning
+python run_game_demo.py --min-interval-steps 8   # Slower fruit spawning
+python run_game_demo.py --min-interval-steps 1   # Maximum fruit spawn rate
+```
+
 ### 📊 Display Configuration
 
 #### `--verbose, -v`
@@ -93,6 +103,12 @@ python run_game_demo.py --model-name experimental --verbose --config-only
 
 # Quick test run with minimal output
 python run_game_demo.py --model grpo_fruits_catcher-000005.pth -q
+
+# Test with faster fruit spawning
+python run_game_demo.py --min-interval-steps 2 --verbose
+
+# Test with much slower fruit spawning
+python run_game_demo.py --min-interval-steps 10
 ```
 
 ### 📊 **Model Comparison**
@@ -106,6 +122,22 @@ python run_game_demo.py --model-name model_v1 --quiet
 python run_game_demo.py --model-name model_v2 --quiet
 ```
 
+### 🎮 **Gameplay Tuning**
+```bash
+# Make game easier (slower fruit spawning)
+python run_game_demo.py --min-interval-steps 8
+
+# Make game harder (faster fruit spawning)  
+python run_game_demo.py --min-interval-steps 2
+
+# Extreme challenge mode (maximum spawn rate)
+python run_game_demo.py --min-interval-steps 1
+
+# Compare AI performance with different difficulty levels
+python run_game_demo.py --min-interval-steps 2 --verbose --config-only
+python run_game_demo.py --min-interval-steps 8 --verbose --config-only
+```
+
 ## 📝 Verbose Configuration Display
 
 When using `--verbose`, you'll see:
@@ -116,6 +148,7 @@ When using `--verbose`, you'll see:
 - 📐 View scaling factors
 - 🔄 Refresh rate settings
 - 🎯 Win/lose score thresholds
+- ⚙️ Configuration overrides (marked with "OVERRIDDEN" when present)
 
 ### 🧠 Training Configuration  
 - 🔄 Total training epochs
@@ -183,6 +216,10 @@ python run_game_demo.py --model-name latest_experiment -v
 
 # CPU testing
 python run_game_demo.py --device cpu -q
+
+# Test gameplay balance
+python run_game_demo.py --min-interval-steps 1 --verbose  # Hard mode
+python run_game_demo.py --min-interval-steps 10 --verbose # Easy mode
 ```
 
 ## 🎊 Output Modes
