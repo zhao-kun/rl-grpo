@@ -48,6 +48,8 @@ def parse_args():
                                help='⏱️ Maximum steps per episode (default: 100)')
     training_group.add_argument('--lr-rate', type=float, default=1e-4,
                                help='📈 Learning rate (default: 1e-4)')
+    training_group.add_argument('--patience', type=int, default=500,
+                               help='🛑 Early stopping patience in epochs (default: 500)')
     training_group.add_argument('--compile', action='store_true',
                                help='⚡ Enable torch.compile for faster training')
     training_group.add_argument('--no-compile', action='store_true',
@@ -103,7 +105,8 @@ def main():
         total_epochs=args.total_epochs,
         max_steps=args.max_steps,
         lr_rate=args.lr_rate,
-        compile=compile_model
+        compile=compile_model,
+        patience=args.patience
     )
 
     print(f"🎮 Game Configuration:")
@@ -118,6 +121,7 @@ def main():
     print(f"  🧠 Hidden Size: {trainer_config.hidden_size}")
     print(f"  📈 Learning Rate: {trainer_config.lr_rate}")
     print(f"  ⏱️ Max Steps: {trainer_config.max_steps}")
+    print(f"  🛑 Early Stopping Patience: {trainer_config.patience}")
     print(f"  ⚡ Compile: {'Yes' if trainer_config.compile else 'No'}")
     
     # Create a trainer instance

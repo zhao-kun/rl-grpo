@@ -99,6 +99,7 @@ def display_verbose_config(game, args):
     print(f"🧠 Hidden Layer Size: {tc.hidden_size}")
     print(f"📈 Learning Rate: {tc.lr_rate}")
     print(f"⏱️  Max Steps per Episode: {tc.max_steps}")
+    print(f"🛑 Early Stopping Patience: {tc.patience}")
     print(f"⚡ PyTorch Compile: {'Enabled' if tc.compile else 'Disabled'}")
     
     # Model Architecture Info

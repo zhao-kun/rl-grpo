@@ -42,6 +42,7 @@ class TrainerConfig:
     game_config: Optional[GameConfig] = field(default_factory=GameConfig)
     lr_rate: float = 5e-4
     compile: bool = False
+    patience: int = 300  # Number of epochs to wait for improvement before early stopping
 
 
 class GameBrain(nn.Module):
@@ -157,7 +158,8 @@ class GameBrain(nn.Module):
                 max_steps=trainer_config_dict['max_steps'],
                 game_config=game_config,
                 lr_rate=trainer_config_dict['lr_rate'],
-                compile=trainer_config_dict['compile']
+                compile=trainer_config_dict['compile'],
+                patience=trainer_config_dict.get('patience', 300)  # Default to 300 for backward compatibility
             )
             
             # Create and load the model
@@ -603,7 +605,7 @@ class Trainer:
         best_score = float('-inf')
         
         # Early stopping parameters
-        patience = 300  # Number of epochs to wait for improvement
+        patience = self.config.patience  # Use patience from config instead of hardcoded value
         no_improvement_count = 0
         best_model_state = None
         
@@ -669,7 +671,8 @@ class Trainer:
             'total_epochs': self.config.total_epochs,
             'max_steps': self.config.max_steps,
             'lr_rate': self.config.lr_rate,
-            'compile': self.config.compile
+            'compile': self.config.compile,
+            'patience': self.config.patience
         }
         
         torch.save({

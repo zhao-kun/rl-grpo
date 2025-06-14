@@ -32,19 +32,32 @@ python main.py \
 #### 🧠 Large Model Training
 ```bash
 python main.py \
-  --hidden-size 1024 \
-  --batch-size 32 \
+  --hidden-size 4096 \
+  --batch-size 64 \
   --total-epochs 3000 \
   --lr-rate 5e-5 \
-  --max-steps 200
+  --max-steps 150 \
+  --patience 800
 ```
 
-#### 💻 CPU Training
+#### � Early Stopping Control
+```bash
+# Quick testing with early stopping after 50 epochs
+python main.py --total-epochs 1000 --patience 50
+
+# Conservative training with longer patience
+python main.py --total-epochs 5000 --patience 500
+
+# Aggressive early stopping for quick experiments
+python main.py --total-epochs 2000 --patience 100
+```
+
+#### � CPU Training
 ```bash
 python main.py --device cpu --batch-size 8 --total-epochs 500
 ```
 
-#### 📂 Custom Model Name
+#### �📂 Custom Model Name
 ```bash
 python main.py --model-name my_custom_model --total-epochs 1500
 ```
@@ -66,11 +79,12 @@ python main.py --model-name my_custom_model --total-epochs 1500
 - `--win-score` - Score threshold for game victory (default: 30)
 
 ### 🧠 Training Configuration  
-- `--hidden-size` - Neural network hidden layer size (default: 768)
-- `--batch-size` - Training batch size (default: 16)
+- `--hidden-size` - Neural network hidden layer size (default: 2048)
+- `--batch-size` - Training batch size (default: 32)
 - `--total-epochs` - Total training epochs (default: 2000)
-- `--max-steps` - Maximum steps per episode (default: 150)
+- `--max-steps` - Maximum steps per episode (default: 100)
 - `--lr-rate` - Learning rate (default: 1e-4)
+- `--patience` - Early stopping patience in epochs (default: 500)
 - `--compile` - Enable torch.compile for faster training
 - `--no-compile` - Disable torch.compile (default)
 
@@ -94,24 +108,38 @@ python main.py --model-name my_custom_model --total-epochs 1500
 - Increase `--max-fruits` for more challenging gameplay
 - Adjust `--max-steps` based on your game difficulty
 
+### 🛑 Early Stopping Guide
+
+The `--patience` parameter controls when training stops if no improvement is seen:
+
+- **`--patience 100`**: Stops if no improvement for 100 epochs (quick experiments)
+- **`--patience 300`**: Good for medium-length training sessions
+- **`--patience 500`**: Default value, good balance between efficiency and thoroughness
+- **`--patience 1000`**: Very patient, suitable for complex models/games
+
+**When to adjust patience:**
+- **Short patience (50-100)**: Testing, debugging, quick experiments
+- **Medium patience (200-400)**: Normal training, most use cases
+- **Long patience (500+)**: Complex games, large models, research
+
 ## 📊 Example Training Configurations
 
 ### Beginner (Fast Training)
 ```bash
-python main.py --total-epochs 500 --batch-size 8 --hidden-size 256
+python main.py --total-epochs 500 --batch-size 8 --hidden-size 512 --patience 100
 ```
 
 ### Intermediate (Balanced)
 ```bash  
-python main.py --total-epochs 1500 --batch-size 16 --hidden-size 512 --compile
+python main.py --total-epochs 1500 --batch-size 16 --hidden-size 1024 --compile --patience 300
 ```
 
 ### Advanced (High Performance)
 ```bash
-python main.py --total-epochs 3000 --batch-size 32 --hidden-size 1024 --compile --lr-rate 5e-5
+python main.py --total-epochs 3000 --batch-size 32 --hidden-size 2048 --compile --lr-rate 5e-5 --patience 500
 ```
 
 ### Research (Long Training)
 ```bash
-python main.py --total-epochs 5000 --batch-size 64 --hidden-size 2048 --max-steps 300 --compile
+python main.py --total-epochs 5000 --batch-size 64 --hidden-size 4096 --max-steps 200 --compile --patience 1000
 ```
