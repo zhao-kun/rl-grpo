@@ -30,7 +30,7 @@ class GameConfig:
     
     @staticmethod
     def get_initial_num(config):
-        return config.screen_width
+        return config.screen_width - 3
 
 
 @dataclass
@@ -382,7 +382,7 @@ class Trainer:
         num_inits = GameConfig.get_initial_num(self.config.game_config)
         
         # Create sprite positions as 1-indexed (1, 2, 3, ..., num_inits)
-        sprites = torch.arange(1, num_inits + 1, dtype=torch.float32, device=self.device).unsqueeze(1)
+        sprites = torch.arange(1, num_inits+1, dtype=torch.float32, device=self.device).unsqueeze(1)
         
         max_fruits = self.config.game_config.max_fruits_on_screen
         fruits = torch.zeros((num_inits, max_fruits, 3), device=self.device, dtype=torch.float32)
