@@ -38,14 +38,14 @@ def parse_args():
     
     # 🧠 Training Configuration Arguments
     training_group = parser.add_argument_group('🧠 Training Configuration')
-    training_group.add_argument('--hidden-size', type=int, default=768,
-                               help='🧠 Neural network hidden layer size (default: 768)')
-    training_group.add_argument('--batch-size', type=int, default=16,
-                               help='📦 Training batch size (default: 16)')
+    training_group.add_argument('--hidden-size', type=int, default=2048,
+                               help='🧠 Neural network hidden layer size (default: 2048)')
+    training_group.add_argument('--batch-size', type=int, default=32,
+                               help='📦 Training batch size (default: 32)')
     training_group.add_argument('--total-epochs', type=int, default=2000,
                                help='🔄 Total training epochs (default: 2000)')
-    training_group.add_argument('--max-steps', type=int, default=150,
-                               help='⏱️ Maximum steps per episode (default: 150)')
+    training_group.add_argument('--max-steps', type=int, default=100,
+                               help='⏱️ Maximum steps per episode (default: 100)')
     training_group.add_argument('--lr-rate', type=float, default=1e-4,
                                help='📈 Learning rate (default: 1e-4)')
     training_group.add_argument('--compile', action='store_true',
