@@ -4,6 +4,11 @@ A reinforcement learning project using Group Relative Policy Optimization (GRPO)
 
 This implementation demonstrates the principles of GRPO, the algorithm proposed by DeepSeek for post-training the DeepSeek-R1 model, applied to a simple game environment.
 
+<div align="center">
+  <img src="assets/demo_game.gif" alt="GRPO Fruits Catcher Demo" width="600" />
+  <p><em>🤖 AI agent trained with GRPO playing the fruits catching game</em></p>
+</div>
+
 > **Note:** This is an educational project (~50% AI-assisted) by a non-ML expert. Please see the [Important Disclaimer](#️-important-disclaimer) section for details.
 
 ## 🙏 Acknowledgments
@@ -346,6 +351,8 @@ python run_game_demo.py
 ```
 Automatically finds the latest trained model and runs the game with full instructions.
 
+> 🎬 **See the demo animation at the top of this README** to get a preview of what the trained AI looks like in action!
+
 ## 📋 All Demo Arguments
 
 ### 🤖 Model Configuration
@@ -607,6 +614,8 @@ rl-grpo/
 ├── pyproject.toml            # Project configuration and dependencies
 ├── uv.lock                   # Dependency lock file (uv)
 ├── README.md                 # This file
+├── assets/                   # Demo animations and media
+│   └── demo_game.gif         # Game demo animation
 ├── REWARD_ALGORITHM.md       # Reward system documentation
 ├── GAME_INFERENCE_README.md  # Game inference documentation
 ├── pytest.ini               # Test configuration
