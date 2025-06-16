@@ -189,7 +189,7 @@ If you encounter issues:
 - **📈 Scoring**: +1 for catching fruits, -1 for missing them
 - **🏆 Win Condition**: Reach +30 score
 - **💥 Lose Condition**: Drop to -30 score
-- **⏱️ Time Limit**: Configurable maximum steps per episode
+- **⏱️ Minimal Interval Steps**: The interval steps between fruit spawns (default: 4)
 
 ---
 
@@ -301,7 +301,7 @@ python main.py --model-name my_custom_model --total-epochs 1500
 ### 🎮 For Custom Games
 - Increase `--win-score` and decrease `--fail-score` for longer episodes
 - Increase `--max-fruits` for more challenging gameplay
-- Adjust `--max-steps` based on your game difficulty
+- Adjust `--max-steps` the max-steps of each episode
 
 ### 🛑 Early Stopping Guide
 
@@ -622,9 +622,6 @@ rl-grpo/
 ├── tests/                    # Test files
 │   ├── test_grpo_fruits_catcher.py
 │   └── test_train_epoch.py
-└── models/                   # Saved model files (generated)
-    ├── grpo_fruits_catcher-*.pth
-    └── ...
 ```
 
 ## 🔬 Research & Experimentation
