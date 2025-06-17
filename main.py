@@ -54,7 +54,11 @@ def parse_args():
                                help='⚡ Enable torch.compile for faster training')
     training_group.add_argument('--no-compile', action='store_true',
                                help='🐌 Disable torch.compile (default)')
-    
+    training_group.add_argument('--save-checkpoint-per-num-epoch', type=int, default=200,
+                               help='💾 Save checkpoint every N epochs (default: 200)')
+    training_group.add_argument('--save-best-model', action='store_true',
+                               help='🏆 Save the best model during training (default)')
+
     # 💾 Output Configuration
     output_group = parser.add_argument_group('💾 Output Configuration')
     output_group.add_argument('--model-name', type=str, default='grpo_fruits_catcher',
@@ -106,7 +110,10 @@ def main():
         max_steps=args.max_steps,
         lr_rate=args.lr_rate,
         compile=compile_model,
-        patience=args.patience
+        patience=args.patience,
+        save_checkpoint_per_num_epoch=args.save_checkpoint_per_num_epoch,
+        save_best_model=args.save_best_model,
+        model_name=args.model_name
     )
 
     print(f"🎮 Game Configuration:")
@@ -132,8 +139,8 @@ def main():
     trainer.train()
     
     # Save the model
-    print(f"\n💾 Saving model as '{args.model_name}'...")
-    trainer.save(args.model_name)
+    print(f"\n💾 Saving model as '{trainer_config.model_name}'...")
+    trainer.save(trainer_config.model_name)
     print(f"✅ Training completed successfully!")
 
     

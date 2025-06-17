@@ -43,6 +43,9 @@ class TrainerConfig:
     lr_rate: float = 5e-4
     compile: bool = False
     patience: int = 300  # Number of epochs to wait for improvement before early stopping
+    save_checkpoint_per_num_epoch: int = 50  # Save the checkpoint per number of epochs, -1 is no save (only save in the end)
+    save_best_model: bool = True  # Save the best model during the training, based on best score achieved
+    model_name: str = "grpo_fruits_catcher"  # Name of the model to save
 
 
 class GameBrain(nn.Module):
@@ -366,8 +369,8 @@ class Trainer:
         # Improved learning rate scheduler for more stable training
         self.scheduler = torch.optim.lr_scheduler.StepLR(
             self.optimizer, 
-            step_size=400,  # Reduce learning rate every 400 epochs (more conservative)
-            gamma=0.9  # Multiply learning rate by 0.8 (less aggressive reduction)
+            step_size=1000,  # Reduce learning rate every 1000 epochs (more conservative)
+            gamma=0.95  # Multiply learning rate by 0.95 (less aggressive reduction)
         )
 
     
@@ -575,13 +578,17 @@ class Trainer:
         
         f_returns = group_normed_returns.reshape((num_steps, batch_size * num_inits))
         
-        total_loss = 0.0
+        total_loss = torch.zeros(num_steps)
         for t in range(num_steps):
             # Use the return at time t (not just final reward)
             loss = self._policy_loss(f_input_history[t], f_action_history[t], f_returns[t])
-            total_loss += loss
+            total_loss[t]= loss
 
         # Compute gradients and update
+        total_loss = total_loss.mean()  # Average loss over all timesteps
+        if torch.isnan(total_loss) or torch.isinf(total_loss):
+            raise ValueError("Loss is NaN or Inf, indicating instability in training.")
+
         self.optimizer.zero_grad()
         total_loss.backward()
         
@@ -605,6 +612,7 @@ class Trainer:
         patience = self.config.patience  # Use patience from config instead of hardcoded value
         no_improvement_count = 0
         best_model_state = None
+        best_epoch = 0
         
         for epoch in tqdm(range(self.config.total_epochs)):
             final_reward[epoch], score, loss = self._train_epoch()
@@ -618,11 +626,17 @@ class Trainer:
                 no_improvement_count = 0  # Reset counter
                 # Save best model state
                 best_model_state = {k: v.clone() for k, v in self.brain.state_dict().items()}
+                best_epoch = epoch
                 print(f"epoch={epoch}, Reward:{final_reward[epoch]:.6f}, Score: {score:.3f} (NEW BEST!) LR: {self.optimizer.param_groups[0]['lr']:.2e}, Loss: {loss:.4f}")
             else:
                 no_improvement_count += 1
                 if epoch % 50 == 0:  # Print every 50 epochs instead of every 10
                     print(f"epoch={epoch}, Reward:{final_reward[epoch]:.6f}, Score: {score:.3f}, LR: {self.optimizer.param_groups[0]['lr']:.2e}, Loss: {loss:.4f}")
+
+            if self.config.save_checkpoint_per_num_epoch > 0 and epoch % self.config.save_checkpoint_per_num_epoch == 0 and epoch > 0:
+                # Save checkpoint every `save_checkpoint_per_num_epoch` epochs
+                self._save(f"{self.config.model_name}", self.config.game_config.__dict__, self.config.__dict__, self.brain, current_epochs=epoch)
+                print(f"Checkpoint saved at epoch {epoch}")
 
             # Early stopping check
             if no_improvement_count >= patience:
@@ -631,7 +645,9 @@ class Trainer:
                 
                 # Restore best model weights
                 if best_model_state is not None:
-                    self.brain.load_state_dict(best_model_state)
+                    gb = GameBrain(self.config)
+                    gb.load_state_dict(best_model_state)
+                    self._save(f"{self.config.model_name}-best", self.config.game_config.__dict__, self.config.__dict__, gb, current_epochs=epoch)
                     print("🔄 Restored best model weights.")
                 break
         
@@ -644,8 +660,6 @@ class Trainer:
         Args:
             name (str): Base name for the saved model file
         """
-        path = f"{name}-{self.config.total_epochs:06d}.pth"
-        
         # Convert configs to dictionaries for JSON serialization
         game_config_dict = {
             'screen_width': self.config.game_config.screen_width,
@@ -672,10 +686,24 @@ class Trainer:
             'patience': self.config.patience
         }
         
+        self._save(name, game_config_dict, trainer_config_dict, self.brain)
+
+    def _save(self, name, game_config_dict: dict, trainer_config_dict: dict, model: nn.Module, current_epochs: int = None):
+        """
+        Save the model state and configurations to a file.
+        
+        Args:
+            name (str): Base name for the saved model file
+            game_config_dict (dict): Game configuration dictionary
+            trainer_config_dict (dict): Trainer configuration dictionary
+        """
+        path = f"{name}-{self.config.total_epochs:06d}-{current_epochs:06d}.pth" if current_epochs else f"{name}-{self.config.total_epochs:06d}.pth"
+
         torch.save({
-            'model_state_dict': self.brain.state_dict(),
+            'model_state_dict': model.state_dict(),
             'game_config': game_config_dict,
             'trainer_config': trainer_config_dict,
             'model_class': 'GameBrain'
         }, path)
         print(f"Model saved to {path}")
+    
