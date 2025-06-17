@@ -88,12 +88,7 @@ class GameBrain(nn.Module):
         x = self.dropout(x)  # Apply dropout
         logits = self.fc_out(x)
         
-        return logits
-    
-    def get_action_probabilities(self, x: torch.Tensor) -> torch.Tensor:
-        """Get action probabilities using softmax"""
-        logits = self.forward(x)
-        return F.softmax(logits, dim=-1)
+        return F.log_softmax(logits, dim=-1)
     
     def sample_action(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
@@ -105,11 +100,11 @@ class GameBrain(nn.Module):
         Returns:
             (action, log_probability)
         """
-        logits = self.forward(x)
-        probs = F.softmax(logits, dim=-1)
+        log_probs = self.forward(x)
+        #probs = F.softmax(logits, dim=-1)
         
         # Sample action from probability distribution
-        action_dist = torch.distributions.Categorical(probs)
+        action_dist = torch.distributions.Categorical(logits=log_probs)
         action = action_dist.sample()
         log_prob = action_dist.log_prob(action)
         
@@ -371,8 +366,8 @@ class Trainer:
         # Improved learning rate scheduler for more stable training
         self.scheduler = torch.optim.lr_scheduler.StepLR(
             self.optimizer, 
-            step_size=500,  # Reduce learning rate every 500 epochs (more conservative)
-            gamma=0.8  # Multiply learning rate by 0.8 (less aggressive reduction)
+            step_size=400,  # Reduce learning rate every 400 epochs (more conservative)
+            gamma=0.9  # Multiply learning rate by 0.8 (less aggressive reduction)
         )
 
     
@@ -511,26 +506,28 @@ class Trainer:
         return input_history, action_history, score_history, reward_history
     
     def _policy_loss(self, inputs: torch.Tensor, actions: torch.Tensor, reward: torch.Tensor):
-        logits = self.brain(inputs)  # Shape: (batch_size, output_size)
-        log_probs = F.log_softmax(logits, dim=-1)  # Convert logits to log probabilities
-        probs = F.softmax(logits, dim=-1)  # Get probabilities for entropy calculation
+        probs = self.brain(inputs)  # Shape: (batch_size, output_size)
+        #log_probs = F.log_softmax(logits, dim=-1)  # Convert logits to log probabilities
+        #probs = F.softmax(logits, dim=-1)  # Get probabilities for entropy calculation
 
         # Extract the log probabilities of the actions taken in the batch
         batch_ix = torch.arange(actions.shape[0], device=self.device)
-        log_action_probs = log_probs[batch_ix, actions]  # Correct batch-wise indexing
+        log_action_probs = probs[batch_ix, actions]  # Correct batch-wise indexing
 
         # Calculate policy loss with reward clipping for stability
-        clipped_rewards = torch.clamp(reward, min=-5.0, max=5.0)  # Clip extreme rewards
-        policy_loss = -torch.mean(log_action_probs * clipped_rewards)
+        reward = torch.clamp(reward, min=-7.0, max=7.0)  # Clip extreme rewards
+
+        policy_loss = -torch.mean(log_action_probs * reward)
+        return policy_loss
         
         # Increased entropy bonus to encourage exploration and prevent overfitting
-        entropy = -torch.sum(probs * log_probs, dim=-1)  # Calculate entropy
-        entropy_bonus = 0.05 * torch.mean(entropy)  # Increased entropy coefficient
+        #entropy = -torch.sum(probs * log_probs, dim=-1)  # Calculate entropy
+        #entropy_bonus = 0.005 * torch.mean(entropy)  # Increased entropy coefficient
         
         # Add L2 regularization to prevent overfitting
-        l2_reg = 0.0001 * sum(p.pow(2.0).sum() for p in self.brain.parameters())
+        #l2_reg = 0.00001 * sum(p.pow(2.0).sum() for p in self.brain.parameters())
         
-        return policy_loss - entropy_bonus + l2_reg  # Include regularization
+        #return policy_loss - entropy_bonus #+ l2_reg  # Include regularization
     
     def _train_epoch(self) -> Tuple[float, float]:
         """
@@ -574,7 +571,7 @@ class Trainer:
         group_normed_returns = (returns - mean_return) / (effective_std + epsilon)
         
         # Apply additional clipping to prevent extreme values
-        group_normed_returns = torch.clamp(group_normed_returns, min=-3.0, max=3.0)
+        # group_normed_returns = torch.clamp(group_normed_returns, min=-3.0, max=3.0)
         
         f_returns = group_normed_returns.reshape((num_steps, batch_size * num_inits))
         
@@ -597,7 +594,7 @@ class Trainer:
         avg_reward = torch.mean(reward_history[-1])
         avg_score = torch.mean(score_history[-1])
         
-        return avg_reward.item(), avg_score.item()
+        return avg_reward.item(), avg_score.item(), total_loss.item()
     
     def train(self) -> torch.Tensor:
         final_reward = np.zeros(self.config.total_epochs) 
@@ -610,7 +607,7 @@ class Trainer:
         best_model_state = None
         
         for epoch in tqdm(range(self.config.total_epochs)):
-            final_reward[epoch], score = self._train_epoch()
+            final_reward[epoch], score, loss = self._train_epoch()
             
             # Step the learning rate scheduler
             self.scheduler.step()
@@ -621,12 +618,12 @@ class Trainer:
                 no_improvement_count = 0  # Reset counter
                 # Save best model state
                 best_model_state = {k: v.clone() for k, v in self.brain.state_dict().items()}
-                print(f"epoch={epoch}, Reward:{final_reward[epoch]:.6f}, Score: {score:.3f} (NEW BEST!) LR: {self.optimizer.param_groups[0]['lr']:.2e}")
+                print(f"epoch={epoch}, Reward:{final_reward[epoch]:.6f}, Score: {score:.3f} (NEW BEST!) LR: {self.optimizer.param_groups[0]['lr']:.2e}, Loss: {loss:.4f}")
             else:
                 no_improvement_count += 1
                 if epoch % 50 == 0:  # Print every 50 epochs instead of every 10
-                    print(f"epoch={epoch}, Reward:{final_reward[epoch]:.6f}, Score: {score:.3f}, LR: {self.optimizer.param_groups[0]['lr']:.2e}")
-            
+                    print(f"epoch={epoch}, Reward:{final_reward[epoch]:.6f}, Score: {score:.3f}, LR: {self.optimizer.param_groups[0]['lr']:.2e}, Loss: {loss:.4f}")
+
             # Early stopping check
             if no_improvement_count >= patience:
                 print(f"\n🛑 Early stopping at epoch {epoch}! No improvement for {patience} epochs.")
