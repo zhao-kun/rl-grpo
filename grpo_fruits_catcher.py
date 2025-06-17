@@ -635,7 +635,7 @@ class Trainer:
 
             if self.config.save_checkpoint_per_num_epoch > 0 and epoch % self.config.save_checkpoint_per_num_epoch == 0 and epoch > 0:
                 # Save checkpoint every `save_checkpoint_per_num_epoch` epochs
-                self._save(f"{self.config.model_name}", self.config.game_config.__dict__, self.config.__dict__, self.brain, current_epochs=epoch)
+                self._save_model(f"{self.config.model_name}", self.brain, current_epochs=epoch)
                 print(f"Checkpoint saved at epoch {epoch}")
 
             # Early stopping check
@@ -647,7 +647,7 @@ class Trainer:
                 if best_model_state is not None:
                     gb = GameBrain(self.config)
                     gb.load_state_dict(best_model_state)
-                    self._save(f"{self.config.model_name}-best", self.config.game_config.__dict__, self.config.__dict__, gb, current_epochs=epoch)
+                    self._save_model(f"{self.config.model_name}-best", gb, current_epochs=epoch)
                     print("🔄 Restored best model weights.")
                 break
         
@@ -686,9 +686,44 @@ class Trainer:
             'patience': self.config.patience
         }
         
-        self._save(name, game_config_dict, trainer_config_dict, self.brain)
+        self.__save(name, game_config_dict, trainer_config_dict, self.brain)
 
-    def _save(self, name, game_config_dict: dict, trainer_config_dict: dict, model: nn.Module, current_epochs: int = None):
+    def _save_model(self, name: str, model: nn.Module, current_epochs: int = None):
+        """
+        Save the model state and configurations to a file.
+        
+        Args:
+            name (str): Base name for the saved model file
+            trainer_config (TrainerConfig): Trainer configuration object
+        """
+        game_config_dict = {
+            'screen_width': self.config.game_config.screen_width,
+            'screen_height': self.config.game_config.screen_height,
+            'sprite_width': self.config.game_config.sprite_width,
+            'sprite_height': self.config.game_config.sprite_height,
+            'max_fruits_on_screen': self.config.game_config.max_fruits_on_screen,
+            'min_fruits_on_screen': self.config.game_config.min_fruits_on_screen,
+            'min_interval_step_fruits': self.config.game_config.min_interval_step_fruits,
+            'view_height_multiplier': self.config.game_config.view_height_multiplier,
+            'view_width_multiplier': self.config.game_config.view_width_multiplier,
+            'refresh_timer': self.config.game_config.refresh_timer,
+            'fail_ended_game_score': self.config.game_config.fail_ended_game_score,
+            'win_ended_game_score': self.config.game_config.win_ended_game_score
+        }
+        
+        trainer_config_dict = {
+            'hidden_size': self.config.hidden_size,
+            'batch_size': self.config.batch_size,
+            'total_epochs': self.config.total_epochs,
+            'max_steps': self.config.max_steps,
+            'lr_rate': self.config.lr_rate,
+            'compile': self.config.compile,
+            'patience': self.config.patience
+        }
+        
+        self.__save(name, game_config_dict, trainer_config_dict, model, current_epochs)
+
+    def __save(self, name, game_config_dict: dict, trainer_config_dict: dict, model: nn.Module, current_epochs: int = None):
         """
         Save the model state and configurations to a file.
         
