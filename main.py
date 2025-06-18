@@ -23,8 +23,8 @@ def parse_args():
                            help='🍎 Maximum fruits on screen (default: 3)')
     game_group.add_argument('--min-fruits', type=int, default=1,
                            help='🍎 Minimum fruits on screen (default: 1)')
-    game_group.add_argument('--min-interval-steps', type=int, default=4,
-                           help='⏱️ Minimum steps between fruit spawns (default: 4)')
+    game_group.add_argument('--min-interval-steps', type=int, default=5,
+                           help='⏱️ Minimum steps between fruit spawns (default: 5)')
     game_group.add_argument('--view-height-multiplier', type=float, default=50.0,
                            help='📐 View height scaling factor (default: 50.0)')
     game_group.add_argument('--view-width-multiplier', type=float, default=50.0,

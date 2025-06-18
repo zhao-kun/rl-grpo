@@ -107,17 +107,19 @@ class TestTrainEpoch:
     
     def test_train_epoch_return_types(self, trainer):
         """Test that _train_epoch returns correct types"""
-        avg_reward, avg_score = trainer._train_epoch()
+        avg_reward, avg_score, total_loss = trainer._train_epoch()
         
         assert isinstance(avg_reward, float), "Average reward should be a float"
         assert isinstance(avg_score, float), "Average score should be a float"
+        assert isinstance(total_loss, float), "Total loss should be a float"
     
     def test_train_epoch_return_values_finite(self, trainer):
         """Test that _train_epoch returns finite values"""
-        avg_reward, avg_score = trainer._train_epoch()
+        avg_reward, avg_score, total_loss = trainer._train_epoch()
         
         assert torch.isfinite(torch.tensor(avg_reward, dtype=torch.float32)), "Average reward should be finite"
         assert torch.isfinite(torch.tensor(avg_score, dtype=torch.float32)), "Average score should be finite"
+        assert torch.isfinite(torch.tensor(total_loss, dtype=torch.float32)), "Total loss should be finite"
 
 class TestGameEngine:
 
@@ -930,5 +932,5 @@ class TestMinimumIntervalRule:
         """Test that GameConfig has the correct default value for min_interval_step_fruits."""
         config = GameConfig()
         assert hasattr(config, 'min_interval_step_fruits'), "min_interval_step_fruits should be defined"
-        assert config.min_interval_step_fruits == 3, "Default value should be 3"
+        assert config.min_interval_step_fruits == 5, "Default value should be 5"
         assert isinstance(config.min_interval_step_fruits, int), "Should be an integer"

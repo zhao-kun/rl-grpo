@@ -46,17 +46,19 @@ class TestTrainEpoch:
     
     def test_train_epoch_return_types(self, trainer):
         """Test that _train_epoch returns correct types"""
-        avg_reward, avg_score = trainer._train_epoch()
+        avg_reward, avg_score, total_loss = trainer._train_epoch()
         
         assert isinstance(avg_reward, float), "Average reward should be a float"
         assert isinstance(avg_score, float), "Average score should be a float"
+        assert isinstance(total_loss, float), "Total loss should be a float"
     
     def test_train_epoch_return_values_finite(self, trainer):
         """Test that _train_epoch returns finite values"""
-        avg_reward, avg_score = trainer._train_epoch()
+        avg_reward, avg_score, total_loss = trainer._train_epoch()
         
         assert torch.isfinite(torch.tensor(avg_reward)), "Average reward should be finite"
         assert torch.isfinite(torch.tensor(avg_score)), "Average score should be finite"
+        assert torch.isfinite(torch.tensor(total_loss)), "Total loss should be finite"
     
     def test_train_epoch_optimizer_called(self, trainer, mock_create_trajector):
         """Test that the optimizer is properly called during training"""
@@ -102,10 +104,17 @@ class TestTrainEpoch:
         num_inits = GameConfig.get_initial_num(trainer.config.game_config)
         
         # Create mock reward data with known distribution
-        reward_history = torch.tensor([[[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
-                                       [2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0, 18.0, 20.0],
-                                       [1.5, 3.0, 4.5, 6.0, 7.5, 9.0, 10.5, 12.0, 13.5, 15.0],
-                                       [3.0, 6.0, 9.0, 12.0, 15.0, 18.0, 21.0, 24.0, 27.0, 30.0]]] * num_steps)
+        # Create a single batch entry with correct number of initializations
+        single_batch_rewards = []
+        for i in range(num_inits):
+            single_batch_rewards.append([(i + 1) * 1.0 + j for j in range(10)])
+        
+        # Create the reward history with proper shape: (num_steps, batch_size, num_inits)
+        reward_history = torch.zeros(num_steps, batch_size, num_inits)
+        for step in range(num_steps):
+            for batch in range(batch_size):
+                for init in range(num_inits):
+                    reward_history[step, batch, init] = single_batch_rewards[init][step] if step < len(single_batch_rewards[init]) else 1.0
         
         # Mock the _create_trajector to return our specific reward data
         input_history = torch.randn(num_steps, batch_size, num_inits, trainer.config.game_config.get_inputsize())
@@ -125,11 +134,12 @@ class TestTrainEpoch:
             with patch.object(trainer, '_policy_loss', side_effect=mock_policy_loss):
                 trainer._train_epoch()
             
-            # Verify that the same normalized rewards were used for all time steps
+            # Verify that normalized rewards are finite and within expected bounds
             assert len(captured_rewards) == num_steps
-            for i in range(1, len(captured_rewards)):
-                assert torch.allclose(captured_rewards[0], captured_rewards[i], atol=1e-6), \
-                    "All time steps should use the same final normalized reward"
+            for rewards in captured_rewards:
+                assert torch.all(torch.isfinite(rewards)), "All rewards should be finite"
+                assert torch.all(rewards >= -2.0), "Rewards should be clipped to minimum -2.0"
+                assert torch.all(rewards <= 2.0), "Rewards should be clipped to maximum 2.0"
     
     def test_train_epoch_tensor_shapes_consistency(self, trainer, mock_create_trajector):
         """Test that tensor reshaping maintains correct dimensions"""
@@ -205,12 +215,14 @@ class TestTrainEpoch:
             with patch.object(trainer, '_create_trajector', return_value=(
                 input_history, action_history, score_history, reward_history
             )):
-                avg_reward, avg_score = trainer._train_epoch()
+                avg_reward, avg_score, total_loss = trainer._train_epoch()
                 
                 assert isinstance(avg_reward, float), f"Failed for config {configs}"
                 assert isinstance(avg_score, float), f"Failed for config {configs}"
+                assert isinstance(total_loss, float), f"Failed for config {configs}"
                 assert torch.isfinite(torch.tensor(avg_reward)), f"Failed for config {configs}"
                 assert torch.isfinite(torch.tensor(avg_score)), f"Failed for config {configs}"
+                assert torch.isfinite(torch.tensor(total_loss)), f"Failed for config {configs}"
     
     def test_train_epoch_epsilon_safety(self, trainer):
         """Test that epsilon prevents division by zero in group normalization"""
@@ -230,16 +242,17 @@ class TestTrainEpoch:
             input_history, action_history, score_history, reward_history
         )):
             # This should not raise any division by zero errors
-            avg_reward, avg_score = trainer._train_epoch()
+            avg_reward, avg_score, total_loss = trainer._train_epoch()
             
             assert torch.isfinite(torch.tensor(avg_reward)), "Should handle zero std dev without NaN"
             assert torch.isfinite(torch.tensor(avg_score)), "Should handle zero std dev without NaN"
+            assert torch.isfinite(torch.tensor(total_loss)), "Should handle zero std dev without NaN"
     
     def test_train_epoch_backward_compatibility(self, trainer, mock_create_trajector):
         """Test that _train_epoch works with the current trainer interface"""
         # Test that the method can be called successfully without errors
         try:
-            avg_reward, avg_score = trainer._train_epoch()
+            avg_reward, avg_score, total_loss = trainer._train_epoch()
             assert True, "Method should execute without raising exceptions"
         except Exception as e:
             pytest.fail(f"_train_epoch raised an unexpected exception: {e}")
@@ -261,9 +274,10 @@ class TestTrainEpoch:
             torch.manual_seed(42)
             random.seed(42)
             trainer = Trainer(train_config, device)
-            avg_reward, avg_score = trainer._train_epoch()
-            results.append((avg_reward, avg_score))
+            avg_reward, avg_score, total_loss = trainer._train_epoch()
+            results.append((avg_reward, avg_score, total_loss))
         
         # Results should be the same (or very close due to floating point precision)
         assert abs(results[0][0] - results[1][0]) < 1e-5, "Results should be consistent with same seed"
         assert abs(results[0][1] - results[1][1]) < 1e-5, "Results should be consistent with same seed"
+        assert abs(results[0][2] - results[1][2]) < 1e-5, "Results should be consistent with same seed"
