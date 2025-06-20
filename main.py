@@ -66,6 +66,13 @@ def parse_args():
     output_group.add_argument('--device', type=str, choices=['auto', 'cpu', 'cuda', 'cuda:0', 'cuda:1'],
                              default='auto', help='💻 Training device (default: auto)')
     
+    # 📊 Metrics Configuration
+    metrics_group = parser.add_argument_group('📊 Metrics Configuration')
+    metrics_group.add_argument('--enable-tensorboard', action='store_true',
+                              help='📊 Enable TensorBoard logging (default: False)')
+    metrics_group.add_argument('--tensorboard-dir', type=str, default='runs',
+                              help='📂 TensorBoard log directory (default: runs)')
+    
     return parser.parse_args()
 
 def main():
@@ -113,7 +120,9 @@ def main():
         patience=args.patience,
         save_checkpoint_per_num_epoch=args.save_checkpoint_per_num_epoch,
         save_best_model=args.save_best_model,
-        model_name=args.model_name
+        model_name=args.model_name,
+        enable_tensorboard=args.enable_tensorboard,
+        tensorboard_dir=args.tensorboard_dir
     )
 
     print(f"🎮 Game Configuration:")
@@ -130,6 +139,9 @@ def main():
     print(f"  ⏱️ Max Steps: {trainer_config.max_steps}")
     print(f"  🛑 Early Stopping Patience: {trainer_config.patience}")
     print(f"  ⚡ Compile: {'Yes' if trainer_config.compile else 'No'}")
+    print(f"  📊 TensorBoard: {'Enabled' if trainer_config.enable_tensorboard else 'Disabled'}")
+    if trainer_config.enable_tensorboard:
+        print(f"      📂 Log Directory: {trainer_config.tensorboard_dir}")
     
     # Create a trainer instance
     trainer = Trainer(trainer_config, device)

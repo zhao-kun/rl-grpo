@@ -7,6 +7,8 @@ import torch.nn.functional as F
 import random
 import numpy as np
 from tqdm import tqdm
+import os
+from datetime import datetime
 
 @dataclass
 class GameConfig:
@@ -46,6 +48,8 @@ class TrainerConfig:
     save_checkpoint_per_num_epoch: int = 50  # Save the checkpoint per number of epochs, -1 is no save (only save in the end)
     save_best_model: bool = True  # Save the best model during the training, based on best score achieved
     model_name: str = "grpo_fruits_catcher"  # Name of the model to save
+    enable_tensorboard: bool = False  # Enable TensorBoard logging
+    tensorboard_dir: str = "runs"  # TensorBoard log directory
 
 
 class GameBrain(nn.Module):
@@ -417,6 +421,20 @@ class Trainer:
             step_size=1000,  # Reduce learning rate every 1000 epochs (more conservative)
             gamma=0.95  # Multiply learning rate by 0.95 (less aggressive reduction)
         )
+        
+        # Initialize TensorBoard writer if enabled
+        self.writer = None
+        if config.enable_tensorboard:
+            try:
+                from torch.utils.tensorboard import SummaryWriter
+                # Create unique log directory with timestamp
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                log_dir = os.path.join(config.tensorboard_dir, f"{config.model_name}_{timestamp}")
+                self.writer = SummaryWriter(log_dir=log_dir)
+                print(f"📊 TensorBoard logging enabled: {log_dir}")
+            except ImportError:
+                print("⚠️  TensorBoard not available, install with: pip install tensorboard")
+                self.writer = None
 
     
     def _create_init(self) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -688,6 +706,22 @@ class Trainer:
             # Step the learning rate scheduler
             self.scheduler.step()
             
+            # Log metrics to TensorBoard
+            if self.writer is not None:
+                self.writer.add_scalar('Training/Reward', final_reward[epoch], epoch)
+                self.writer.add_scalar('Training/Score', score, epoch)
+                self.writer.add_scalar('Training/Loss', loss, epoch)
+                self.writer.add_scalar('Training/Learning_Rate', self.optimizer.param_groups[0]['lr'], epoch)
+                self.writer.add_scalar('Training/Best_Score', best_score, epoch)
+                self.writer.add_scalar('Training/No_Improvement_Count', no_improvement_count, epoch)
+                
+                # Log histograms of model parameters every 100 epochs for model analysis
+                if epoch % 100 == 0:
+                    for name, param in self.brain.named_parameters():
+                        if param.grad is not None:
+                            self.writer.add_histogram(f'Parameters/{name}', param, epoch)
+                            self.writer.add_histogram(f'Gradients/{name}', param.grad, epoch)
+            
             # Track best performance and implement early stopping
             if score > best_score:
                 best_score = score
@@ -696,6 +730,10 @@ class Trainer:
                 best_model_state = {k: v.clone() for k, v in self.brain.state_dict().items()}
                 best_epoch = epoch
                 print(f"epoch={epoch}, Reward:{final_reward[epoch]:.6f}, Score: {score:.3f} (NEW BEST!) LR: {self.optimizer.param_groups[0]['lr']:.2e}, Loss: {loss:.4f}")
+                
+                # Log best score achievement to TensorBoard
+                if self.writer is not None:
+                    self.writer.add_scalar('Training/New_Best_Score', score, epoch)
             else:
                 no_improvement_count += 1
                 if epoch % 50 == 0:  # Print every 50 epochs instead of every 10
@@ -720,6 +758,16 @@ class Trainer:
             print("🔄 Saved best model weights.")
 
         print(f"Final - Reward:{final_reward[epoch]:.6f}, Score: {score:.3f}, Best Score: {best_score:.3f}")
+        
+        # Log final training summary to TensorBoard
+        if self.writer is not None:
+            self.writer.add_scalar('Training/Final_Reward', final_reward[epoch], epoch)
+            self.writer.add_scalar('Training/Final_Score', score, epoch)
+            self.writer.add_scalar('Training/Final_Best_Score', best_score, epoch)
+            self.writer.add_scalar('Training/Total_Epochs_Trained', epoch + 1, 0)
+            self.writer.close()
+            print("📊 TensorBoard logs saved and writer closed")
+        
         return final_reward
     
     def save(self, name: str):
