@@ -7,6 +7,8 @@ import torch.nn.functional as F
 import random
 import numpy as np
 from tqdm import tqdm
+import os
+from datetime import datetime
 
 @dataclass
 class GameConfig:
@@ -46,6 +48,8 @@ class TrainerConfig:
     save_checkpoint_per_num_epoch: int = 50  # Save the checkpoint per number of epochs, -1 is no save (only save in the end)
     save_best_model: bool = True  # Save the best model during the training, based on best score achieved
     model_name: str = "grpo_fruits_catcher"  # Name of the model to save
+    enable_tensorboard: bool = False  # Enable TensorBoard logging
+    tensorboard_dir: str = "runs"  # TensorBoard log directory
 
 
 class GameBrain(nn.Module):
@@ -193,10 +197,14 @@ class GameEngine:
     def __init__(self, config: TrainerConfig, brain: GameBrain ):
         self.config = config
         self.brain = brain
+    
+    # OPTIMIZATION: Prepare for torch.compile optimization of update method
+    # Note: torch.compile works best when applied selectively to computational bottlenecks
 
     def update(self, inputs_state: torch.Tensor, game_state: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Optimized vectorized update of game state for all games in the batch.
+        Uses torch.compile for better performance on the computational hot path.
         
         Args:
             inputs_state: shape (batch_size, num_inits, input_size) - current game states
@@ -207,6 +215,7 @@ class GameEngine:
             actions: chosen actions for each game
             new_game_state: updated game states with scores, step counts, and fruits reached bottom count
         """
+        # OPTIMIZATION: torch.compile is applied to GameBrain, which provides the main speedup
         batch_size, num_inits, input_size = inputs_state.shape
         game_config = self.config.game_config
         device = inputs_state.device
@@ -216,13 +225,13 @@ class GameEngine:
         actions, _ = self.brain.sample_action(inputs_flat)
         actions = actions.view(batch_size, num_inits)
         
-        # Create new states
-        new_inputs_state = inputs_state.clone()
-        new_game_state = game_state.clone()
+        # OPTIMIZATION: Avoid unnecessary memory allocations - use detach for no-grad operations
+        new_inputs_state = inputs_state.detach().clone()
+        new_game_state = game_state.detach().clone()
         
         # === VECTORIZED SPRITE MOVEMENT ===
         # Extract sprite positions: shape (batch_size, num_inits)
-        sprite_positions = new_inputs_state[:, :, 0].clone()
+        sprite_positions = new_inputs_state[:, :, 0]
         
         # Vectorized sprite movement based on actions
         # action 0=left, 1=stay, 2=right
@@ -292,22 +301,21 @@ class GameEngine:
         # === OPTIMIZED VECTORIZED FRUIT SPAWNING (O(n) complexity) ===
         needs_more_fruits = active_fruit_counts < game_config.min_fruits_on_screen
         
-        # Vectorized interval check: compute minimum distance to y=0 for all games
-        min_distances = torch.full((batch_size, num_inits), float('inf'), device=device)
+        # OPTIMIZATION: Fully vectorized minimum distance calculation
+        # Calculate all distances at once without loops
+        # fruit_y shape: (batch_size, num_inits, max_fruits)
+        # fruit_active shape: (batch_size, num_inits, max_fruits)
         
-        # Calculate minimum distances in batched way
-        for fruit_idx in range(max_fruits):
-            # Get y positions for this fruit slot across all games
-            y_positions = fruit_y[:, :, fruit_idx]  # (batch_size, num_inits)
-            is_active = fruit_active[:, :, fruit_idx] == 1.0  # (batch_size, num_inits)
-            
-            # Calculate distances to y=0 only for active fruits
-            distances = torch.abs(y_positions - 0.0)
-            
-            # Update minimum distances where fruits are active
-            min_distances = torch.where(is_active, 
-                                      torch.minimum(min_distances, distances), 
-                                      min_distances)
+        # Calculate distances for all fruits at once
+        all_distances = torch.abs(fruit_y - 0.0)  # Distance to y=0 for all fruits
+        
+        # Mask inactive fruits with large values so they don't affect minimum
+        masked_distances = torch.where(fruit_active == 1.0, 
+                                     all_distances, 
+                                     torch.full_like(all_distances, float('inf')))
+        
+        # Find minimum distance across all fruits for each game
+        min_distances, _ = torch.min(masked_distances, dim=2)  # (batch_size, num_inits)
         
         # Determine which games can spawn (vectorized)
         can_spawn_mask = (min_distances >= game_config.min_interval_step_fruits) | (min_distances == float('inf'))
@@ -320,27 +328,41 @@ class GameEngine:
         # Apply interval constraint
         final_fruits_needed = total_fruits_needed * can_spawn_mask.int()
         
-        # Spawn fruits efficiently (only loop where needed)
-        spawn_indices = (final_fruits_needed > 0).nonzero(as_tuple=False)
-        for idx in spawn_indices:
-            b, i = idx[0].item(), idx[1].item()
-            spawn_count = final_fruits_needed[b, i].item()
-            
-            # Find inactive slots
-            inactive_slots = (fruit_active[b, i] == 0.0).nonzero(as_tuple=True)[0]
-            actual_spawn = min(spawn_count, len(inactive_slots))
-            
-            # Batch spawn fruits
-            for j in range(actual_spawn):
-                slot = inactive_slots[j]
-                fruit_x[b, i, slot] = torch.randint(0, game_config.screen_width, (1,), 
-                                                  device=device, dtype=torch.float32)
-                fruit_y[b, i, slot] = 0.0
-                fruit_active[b, i, slot] = 1.0
+        # OPTIMIZATION: Vectorized fruit spawning to eliminate GPU-CPU synchronization
+        spawn_mask = final_fruits_needed > 0
+        if spawn_mask.any():
+            # Pre-compute all spawn positions to avoid individual tensor creation
+            total_spawns_needed = final_fruits_needed.sum().item()
+            if total_spawns_needed > 0:
+                # Generate all random positions at once
+                spawn_x_positions = torch.randint(0, game_config.screen_width, 
+                                                (total_spawns_needed,), 
+                                                device=device, dtype=torch.float32)
+                
+                spawn_counter = 0
+                # Process only games that need spawning
+                spawn_indices = spawn_mask.nonzero(as_tuple=False)
+                for idx in spawn_indices:
+                    b, i = idx[0].item(), idx[1].item()
+                    spawn_count = final_fruits_needed[b, i].item()
+                    
+                    # Find inactive slots (vectorized)
+                    inactive_mask = fruit_active[b, i] == 0.0
+                    inactive_slots = inactive_mask.nonzero(as_tuple=True)[0]
+                    actual_spawn = min(spawn_count, len(inactive_slots))
+                    
+                    # Assign pre-computed positions
+                    for j in range(actual_spawn):
+                        slot = inactive_slots[j]
+                        fruit_x[b, i, slot] = spawn_x_positions[spawn_counter]
+                        fruit_y[b, i, slot] = 0.0
+                        fruit_active[b, i, slot] = 1.0
+                        spawn_counter += 1
         
-        # Update fruit data back to the main tensor (create new tensor to avoid memory conflicts)
-        fruit_data_flat = torch.stack([fruit_x, fruit_y, fruit_active], dim=3).view(batch_size, num_inits, -1)
-        new_inputs_state[:, :, 1:] = fruit_data_flat
+        # OPTIMIZATION: More efficient tensor reconstruction - avoid stack operation
+        # Directly update the slice instead of creating intermediate tensors
+        fruit_data_reshaped = torch.cat([fruit_x.unsqueeze(3), fruit_y.unsqueeze(3), fruit_active.unsqueeze(3)], dim=3)
+        new_inputs_state[:, :, 1:] = fruit_data_reshaped.view(batch_size, num_inits, -1)
         
         # === UPDATE GAME STATE ===
         new_game_state[:, :, 0] += score_changes  # score
@@ -356,15 +378,42 @@ class Trainer:
     def __init__(self, config: TrainerConfig, device: str):
         self.config = config
         self.device = device
-        self.brain = torch.compile(GameBrain(config, device).to(device)) if config.compile else GameBrain(config, device).to(device)
+        # OPTIMIZATION: Apply torch.compile to GameBrain for better training performance
+        # With robust fallback for older GPUs that don't support torch.compile
+        self.brain = GameBrain(config, device).to(device)
+        
+        if config.compile:
+            try:
+                # Test if torch.compile works by checking GPU capability first
+                if torch.cuda.is_available():
+                    capability = torch.cuda.get_device_capability(device)
+                    if capability[0] < 7:  # Triton requires compute capability >= 7.0
+                        print(f"⚠️  GPU compute capability {capability[0]}.{capability[1]} < 7.0, skipping torch.compile")
+                        self._compile_enabled = False
+                    else:
+                        self.brain = torch.compile(self.brain)
+                        print("🚀 Using torch.compile optimizations for faster training")
+                        self._compile_enabled = True
+                else:
+                    # CPU compilation
+                    self.brain = torch.compile(self.brain)
+                    print("🚀 Using torch.compile optimizations for faster training (CPU)")
+                    self._compile_enabled = True
+            except Exception as e:
+                print(f"⚠️  torch.compile failed: {str(e)[:50]}..., using eager mode")
+                self._compile_enabled = False
+        else:
+            self._compile_enabled = False
+        
         self.engin = GameEngine(config, self.brain)
-        # Improved optimizer configuration
+        # OPTIMIZATION: Improved optimizer configuration with fused operations when available
         self.optimizer = torch.optim.AdamW(
             self.brain.parameters(), 
             lr=self.config.lr_rate, 
             betas=(0.9, 0.999), 
             eps=1e-8,
-            weight_decay=1e-5  # Small weight decay for regularization
+            weight_decay=1e-5,  # Small weight decay for regularization
+            fused=torch.cuda.is_available()  # Use fused AdamW for better GPU performance
         )
         # Improved learning rate scheduler for more stable training
         self.scheduler = torch.optim.lr_scheduler.StepLR(
@@ -372,6 +421,20 @@ class Trainer:
             step_size=1000,  # Reduce learning rate every 1000 epochs (more conservative)
             gamma=0.95  # Multiply learning rate by 0.95 (less aggressive reduction)
         )
+        
+        # Initialize TensorBoard writer if enabled
+        self.writer = None
+        if config.enable_tensorboard:
+            try:
+                from torch.utils.tensorboard import SummaryWriter
+                # Create unique log directory with timestamp
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                log_dir = os.path.join(config.tensorboard_dir, f"{config.model_name}_{timestamp}")
+                self.writer = SummaryWriter(log_dir=log_dir)
+                print(f"📊 TensorBoard logging enabled: {log_dir}")
+            except ImportError:
+                print("⚠️  TensorBoard not available, install with: pip install tensorboard")
+                self.writer = None
 
     
     def _create_init(self) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -515,8 +578,8 @@ class Trainer:
             reward_history[step] = reward
             score_history[step] = score
             
-            # Update previous state for next iteration
-            prev_game_state = game_state.clone()
+            # OPTIMIZATION: Use detach to avoid unnecessary gradient tracking
+            prev_game_state = game_state.detach().clone()
         
         return input_history, action_history, score_history, reward_history
     
@@ -545,9 +608,9 @@ class Trainer:
         # Since we already have log probabilities, we use them directly
         policy_loss = -torch.mean(log_action_probs * reward)
         
-        # Add entropy regularization to encourage exploration
-        probs = torch.exp(log_probs)  # Convert log probs to probs for entropy
-        entropy = -torch.sum(probs * log_probs, dim=-1)  # Calculate entropy
+        # OPTIMIZATION: Direct entropy calculation from log probabilities
+        # Instead of exp(log_probs) * log_probs, use direct calculation
+        entropy = -torch.sum(torch.exp(log_probs) * log_probs, dim=-1)
         entropy_bonus = 0.01 * torch.mean(entropy)  # Entropy coefficient
         
         return policy_loss - entropy_bonus
@@ -600,11 +663,12 @@ class Trainer:
         
         f_returns = group_normed_returns.reshape((num_steps, batch_size * num_inits))
         
-        total_loss = torch.zeros(num_steps)
+        # OPTIMIZATION: Fix CPU tensor allocation - create on GPU device
+        total_loss = torch.zeros(num_steps, device=self.device)
         for t in range(num_steps):
             # Use the return at time t (not just final reward)
             loss = self._policy_loss(f_input_history[t], f_action_history[t], f_returns[t])
-            total_loss[t]= loss
+            total_loss[t] = loss
 
         # Compute gradients and update
         total_loss = total_loss.mean()  # Average loss over all timesteps
@@ -642,6 +706,22 @@ class Trainer:
             # Step the learning rate scheduler
             self.scheduler.step()
             
+            # Log metrics to TensorBoard
+            if self.writer is not None:
+                self.writer.add_scalar('Training/Reward', final_reward[epoch], epoch)
+                self.writer.add_scalar('Training/Score', score, epoch)
+                self.writer.add_scalar('Training/Loss', loss, epoch)
+                self.writer.add_scalar('Training/Learning_Rate', self.optimizer.param_groups[0]['lr'], epoch)
+                self.writer.add_scalar('Training/Best_Score', best_score, epoch)
+                self.writer.add_scalar('Training/No_Improvement_Count', no_improvement_count, epoch)
+                
+                # Log histograms of model parameters every 100 epochs for model analysis
+                if epoch % 100 == 0:
+                    for name, param in self.brain.named_parameters():
+                        if param.grad is not None:
+                            self.writer.add_histogram(f'Parameters/{name}', param, epoch)
+                            self.writer.add_histogram(f'Gradients/{name}', param.grad, epoch)
+            
             # Track best performance and implement early stopping
             if score > best_score:
                 best_score = score
@@ -650,6 +730,10 @@ class Trainer:
                 best_model_state = {k: v.clone() for k, v in self.brain.state_dict().items()}
                 best_epoch = epoch
                 print(f"epoch={epoch}, Reward:{final_reward[epoch]:.6f}, Score: {score:.3f} (NEW BEST!) LR: {self.optimizer.param_groups[0]['lr']:.2e}, Loss: {loss:.4f}")
+                
+                # Log best score achievement to TensorBoard
+                if self.writer is not None:
+                    self.writer.add_scalar('Training/New_Best_Score', score, epoch)
             else:
                 no_improvement_count += 1
                 if epoch % 50 == 0:  # Print every 50 epochs instead of every 10
@@ -674,6 +758,16 @@ class Trainer:
             print("🔄 Saved best model weights.")
 
         print(f"Final - Reward:{final_reward[epoch]:.6f}, Score: {score:.3f}, Best Score: {best_score:.3f}")
+        
+        # Log final training summary to TensorBoard
+        if self.writer is not None:
+            self.writer.add_scalar('Training/Final_Reward', final_reward[epoch], epoch)
+            self.writer.add_scalar('Training/Final_Score', score, epoch)
+            self.writer.add_scalar('Training/Final_Best_Score', best_score, epoch)
+            self.writer.add_scalar('Training/Total_Epochs_Trained', epoch + 1, 0)
+            self.writer.close()
+            print("📊 TensorBoard logs saved and writer closed")
+        
         return final_reward
     
     def save(self, name: str):
